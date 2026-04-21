@@ -1,0 +1,25 @@
+# Node / TS (reserved for future reference implementation)
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Python (in case we add a Python reference client)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Temp
+tmp/
+.tmp/
