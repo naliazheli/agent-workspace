@@ -1,12 +1,17 @@
 # schemas/
 
-Placeholder. This directory will hold machine-readable schemas for the entities defined in `../docs/SPEC.md`:
+Machine-readable schemas for the entities defined in `../docs/SPEC.md`.
 
-- `json-schema/` — JSON Schema for every request/response and every entity
-- `typescript/` — generated `.d.ts` package (`@agent-workspace/types`)
-- `prisma/` — a reference Prisma schema fragment for the coordination tables
-- `proto/` — optional Protobuf variant for non-TS runtimes
+## Current contents (v0.2 draft)
 
-Target milestone: **v0.2**.
+- **`json-schema/entities.schema.json`** — JSON Schema (draft 2020-12) with `$defs` for every core entity. Authoritative machine reference.
+- **`typescript/`** — `@agent-workspace/types` package. Hand-written in v0.2; will be generated from the JSON Schema starting v0.3.
 
-Until then, treat `../docs/SPEC.md` as the source of truth. Field names and enum values used in the informal TypeScript in the spec are intended to match the machine-readable schemas 1:1.
+## Planned
+
+- **`prisma/`** — reference Prisma schema fragment for the coordination tables (targets v0.3 alongside the reference server).
+- **`proto/`** — optional Protobuf variant for non-TS runtimes (post-v1.0).
+
+## Source of truth
+
+`../docs/SPEC.md` is the normative spec. The JSON Schema and TypeScript types should stay in lockstep with it. If you find a divergence, the spec wins — please file an issue.

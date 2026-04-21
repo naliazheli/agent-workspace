@@ -1,0 +1,498 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/naliazheli/agent-workspace/schemas/entities.schema.json",
+  "title": "agent-workspace core entities",
+  "description": "Draft v0.2 entity definitions. Normative reference: docs/SPEC.md.",
+  "type": "object",
+  "$defs": {
+    "Id": { "type": "string", "minLength": 1 },
+    "ISODate": { "type": "string", "format": "date-time" },
+    "Json": { "type": "object", "additionalProperties": true },
+
+    "ProjectStatus": {
+      "type": "string",
+      "enum": ["DRAFT", "ACTIVE", "PAUSED", "COMPLETED", "ARCHIVED"]
+    },
+    "GoalStatus": {
+      "type": "string",
+      "enum": ["OPEN", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"]
+    },
+    "FeatureStatus": {
+      "type": "string",
+      "enum": ["PLANNED", "READY", "IN_PROGRESS", "BLOCKED", "DONE", "CANCELLED"]
+    },
+    "WorkItemStatus": {
+      "type": "string",
+      "enum": [
+        "DRAFT", "READY", "ASSIGNED", "IN_PROGRESS",
+        "IN_REVIEW", "NEEDS_REVISION", "ACCEPTED", "REJECTED", "CANCELLED"
+      ]
+    },
+    "AssignmentStatus": {
+      "type": "string",
+      "enum": ["PROPOSED", "ACTIVE", "PAUSED", "COMPLETED", "RELEASED", "FAILED"]
+    },
+    "RunStatus": {
+      "type": "string",
+      "enum": ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
+    },
+    "ReviewStatus": {
+      "type": "string",
+      "enum": ["PENDING", "APPROVED", "CHANGES_REQUESTED", "REJECTED"]
+    },
+    "ProposalStatus": {
+      "type": "string",
+      "enum": ["PENDING", "APPROVED", "REJECTED", "EXPIRED", "ESCALATED"]
+    },
+    "ProposalType": {
+      "type": "string",
+      "enum": [
+        "GOAL_DEFINITION", "GOAL_CHANGE", "GOAL_CLOSE", "GOAL_REOPEN",
+        "BUDGET_INCREASE", "REASSIGN", "SCOPE_CHANGE", "MEMBER_INVITE"
+      ]
+    },
+    "ConcurrencyMode": {
+      "type": "string",
+      "enum": ["SINGLE", "RACE", "MULTI_ROLE", "PRIMARY_BACKUP"]
+    },
+    "MemoryType": {
+      "type": "string",
+      "enum": [
+        "DECISION", "CONSTRAINT", "FACT", "RISK",
+        "OPEN_QUESTION", "INTERFACE_CONTRACT"
+      ]
+    },
+    "MemberRole": {
+      "type": "string",
+      "enum": ["OWNER", "LEAD", "PLANNER", "WORKER", "REVIEWER", "PM", "INTEGRATOR", "OBSERVER"]
+    },
+    "CapabilityLevel": {
+      "type": "string",
+      "enum": ["novice", "competent", "expert"]
+    },
+    "CapabilitySource": {
+      "type": "string",
+      "enum": ["self_declared", "verified_by_review", "verified_by_metric"]
+    },
+    "ExternalType": {
+      "type": "string",
+      "enum": ["GITHUB_ISSUE", "GITHUB_PR", "GITHUB_COMMIT", "GITHUB_CI_RUN"]
+    },
+    "ExternalSource": {
+      "type": "string",
+      "enum": ["github", "gitlab", "custom"]
+    },
+    "EventType": {
+      "type": "string",
+      "description": "Open enum. Known types listed; implementers may add namespaced types.",
+      "examples": [
+        "GOAL_CREATED", "GOAL_UPDATED", "GOAL_CLOSED",
+        "FEATURE_CREATED", "FEATURE_UPDATED",
+        "WORK_ITEM_CREATED", "WORK_ITEM_STATUS_CHANGED",
+        "ASSIGNMENT_CREATED", "ASSIGNMENT_RELEASED",
+        "RUN_STARTED", "RUN_FINISHED",
+        "ARTIFACT_SUBMITTED", "HANDOFF_SUBMITTED",
+        "REVIEW_REQUESTED", "REVIEW_RESOLVED",
+        "MEMORY_WRITTEN",
+        "PROPOSAL_CREATED", "PROPOSAL_RESOLVED",
+        "EXTERNAL_LINK_CREATED", "EXTERNAL_EVENT_INGESTED",
+        "METRIC_SNAPSHOT_WRITTEN", "INTEGRATE_REQUESTED", "INTEGRATE_DONE"
+      ]
+    },
+    "NotificationPlatform": {
+      "type": "string",
+      "enum": [
+        "email", "dingtalk", "slack", "mattermost", "matrix",
+        "telegram", "discord", "homeassistant"
+      ]
+    },
+    "NotificationDeliveryStatus": {
+      "type": "string",
+      "enum": ["QUEUED", "SENT", "FAILED", "ACKED", "REPLIED"]
+    },
+
+    "Project": {
+      "type": "object",
+      "required": ["id", "name", "slug", "status", "ownerId", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "summary": { "type": "string" },
+        "brief": { "type": "string" },
+        "status": { "$ref": "#/$defs/ProjectStatus" },
+        "visibility": { "type": "string", "enum": ["public", "private"], "default": "private" },
+        "ownerId": { "$ref": "#/$defs/Id" },
+        "leadAgentUserId": { "$ref": "#/$defs/Id" },
+        "budgetAmount": { "type": "number", "minimum": 0 },
+        "budgetCurrency": { "type": "string" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "autonomy": {
+              "type": "object",
+              "properties": {
+                "goalCreate": { "type": "string", "enum": ["auto", "proposal"], "default": "auto" },
+                "goalClose": { "type": "string", "enum": ["auto", "proposal"], "default": "auto" },
+                "budgetWarnThreshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.8 }
+              }
+            },
+            "race": {
+              "type": "object",
+              "properties": {
+                "maxParticipants": { "type": "integer", "minimum": 2, "default": 3 }
+              }
+            }
+          }
+        },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Member": {
+      "type": "object",
+      "required": ["id", "projectId", "userId", "role", "joinedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "userId": { "$ref": "#/$defs/Id" },
+        "role": { "$ref": "#/$defs/MemberRole" },
+        "permissions": { "$ref": "#/$defs/Json" },
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Capability" }
+        },
+        "joinedAt": { "$ref": "#/$defs/ISODate" },
+        "removedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Capability": {
+      "type": "object",
+      "required": ["id", "memberId", "capability", "level", "source"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "memberId": { "$ref": "#/$defs/Id" },
+        "capability": { "type": "string", "description": "Namespaced tag, e.g. 'language.typescript' or 'review.code'." },
+        "level": { "$ref": "#/$defs/CapabilityLevel" },
+        "source": { "$ref": "#/$defs/CapabilitySource" },
+        "createdAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Goal": {
+      "type": "object",
+      "required": ["id", "projectId", "title", "status", "createdById", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "priority": { "type": "integer", "default": 0 },
+        "status": { "$ref": "#/$defs/GoalStatus" },
+        "sortOrder": { "type": "integer", "default": 0 },
+        "createdById": { "$ref": "#/$defs/Id" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Feature": {
+      "type": "object",
+      "required": ["id", "projectId", "title", "status", "createdById", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "goalId": { "$ref": "#/$defs/Id" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "$ref": "#/$defs/FeatureStatus" },
+        "priority": { "type": "integer", "default": 0 },
+        "sortOrder": { "type": "integer", "default": 0 },
+        "spec": { "$ref": "#/$defs/Json" },
+        "createdById": { "$ref": "#/$defs/Id" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "WorkItem": {
+      "type": "object",
+      "required": ["id", "projectId", "title", "workType", "status", "createdById", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "goalId": { "$ref": "#/$defs/Id" },
+        "featureId": { "$ref": "#/$defs/Id" },
+        "parentWorkItemId": { "$ref": "#/$defs/Id" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "workType": { "type": "string", "examples": ["RESEARCH", "DESIGN", "IMPL", "REVIEW", "INTEGRATION", "VERIFICATION", "ROLLOUT"] },
+        "status": { "$ref": "#/$defs/WorkItemStatus" },
+        "priority": { "type": "integer", "default": 0 },
+        "scopeBrief": { "type": "string" },
+        "acceptanceCriteria": { "type": "string" },
+        "inputPacket": { "$ref": "#/$defs/Json" },
+        "outputContract": { "$ref": "#/$defs/Json" },
+        "dependsOn": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "concurrencyMode": { "$ref": "#/$defs/ConcurrencyMode", "default": "SINGLE" },
+        "createdById": { "$ref": "#/$defs/Id" },
+        "ownerId": { "$ref": "#/$defs/Id" },
+        "dueAt": { "$ref": "#/$defs/ISODate" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "TaskPacket": {
+      "type": "object",
+      "description": "L3 context snapshot handed to a single assignment.",
+      "required": ["objective", "acceptanceCriteria"],
+      "properties": {
+        "objective": { "type": "string" },
+        "acceptanceCriteria": { "type": "string" },
+        "memoryRefs": { "type": "array", "items": { "$ref": "#/$defs/Id" } },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["workItemId", "summary"],
+            "properties": {
+              "workItemId": { "$ref": "#/$defs/Id" },
+              "summary": { "type": "string" }
+            }
+          }
+        },
+        "suggestedSkills": { "type": "array", "items": { "type": "string" } },
+        "outputContract": { "$ref": "#/$defs/Json" }
+      }
+    },
+
+    "Assignment": {
+      "type": "object",
+      "required": ["id", "projectId", "workItemId", "assigneeUserId", "assignedByUserId", "role", "status", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "workItemId": { "$ref": "#/$defs/Id" },
+        "assigneeUserId": { "$ref": "#/$defs/Id" },
+        "assignedByUserId": { "$ref": "#/$defs/Id" },
+        "role": { "$ref": "#/$defs/MemberRole" },
+        "status": { "$ref": "#/$defs/AssignmentStatus" },
+        "objective": { "type": "string" },
+        "contextPacket": { "$ref": "#/$defs/TaskPacket" },
+        "concurrencyModeOverride": { "$ref": "#/$defs/ConcurrencyMode" },
+        "startedAt": { "$ref": "#/$defs/ISODate" },
+        "finishedAt": { "$ref": "#/$defs/ISODate" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Run": {
+      "type": "object",
+      "required": ["id", "projectId", "workItemId", "runType", "status", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "workItemId": { "$ref": "#/$defs/Id" },
+        "assignmentId": { "$ref": "#/$defs/Id" },
+        "triggeredByUserId": { "$ref": "#/$defs/Id" },
+        "runType": { "type": "string" },
+        "status": { "$ref": "#/$defs/RunStatus" },
+        "instruction": { "type": "string" },
+        "contextSnapshot": { "$ref": "#/$defs/Json" },
+        "resultSummary": { "type": "string" },
+        "costInfo": { "$ref": "#/$defs/Json" },
+        "startedAt": { "$ref": "#/$defs/ISODate" },
+        "finishedAt": { "$ref": "#/$defs/ISODate" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Artifact": {
+      "type": "object",
+      "required": ["id", "projectId", "artifactType", "createdByUserId", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "workItemId": { "$ref": "#/$defs/Id" },
+        "assignmentId": { "$ref": "#/$defs/Id" },
+        "runId": { "$ref": "#/$defs/Id" },
+        "artifactType": { "type": "string", "examples": ["DESIGN_NOTE", "HANDOFF", "PATCH", "PR_LINK", "TEST_REPORT", "DECISION_RECORD", "PM_REPORT"] },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "url": { "type": "string" },
+        "metadata": { "$ref": "#/$defs/Json" },
+        "createdByUserId": { "$ref": "#/$defs/Id" },
+        "createdAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Review": {
+      "type": "object",
+      "required": ["id", "projectId", "workItemId", "reviewerType", "status", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "workItemId": { "$ref": "#/$defs/Id" },
+        "assignmentId": { "$ref": "#/$defs/Id" },
+        "artifactId": { "$ref": "#/$defs/Id" },
+        "reviewerUserId": { "$ref": "#/$defs/Id" },
+        "reviewerType": { "type": "string", "enum": ["agent", "human", "rule"] },
+        "status": { "$ref": "#/$defs/ReviewStatus" },
+        "reviewNote": { "type": "string" },
+        "checklistResult": { "$ref": "#/$defs/Json" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Memory": {
+      "type": "object",
+      "required": ["id", "projectId", "memoryType", "content", "createdByUserId", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "memoryType": { "$ref": "#/$defs/MemoryType" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "summary": { "type": "string" },
+        "metadata": { "$ref": "#/$defs/Json" },
+        "sourceArtifactId": { "$ref": "#/$defs/Id" },
+        "createdByUserId": { "$ref": "#/$defs/Id" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "Proposal": {
+      "type": "object",
+      "required": ["id", "projectId", "type", "payload", "createdByUserId", "approverUserIds", "status", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "type": { "$ref": "#/$defs/ProposalType" },
+        "payload": { "$ref": "#/$defs/Json" },
+        "reason": { "type": "string" },
+        "createdByUserId": { "$ref": "#/$defs/Id" },
+        "approverUserIds": { "type": "array", "items": { "$ref": "#/$defs/Id" }, "minItems": 1 },
+        "status": { "$ref": "#/$defs/ProposalStatus" },
+        "resolvedByUserId": { "$ref": "#/$defs/Id" },
+        "resolvedNote": { "type": "string" },
+        "expiresAt": { "$ref": "#/$defs/ISODate" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "ProjectEvent": {
+      "type": "object",
+      "required": ["id", "projectId", "seq", "type", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "seq": { "type": "integer", "minimum": 1, "description": "Monotonic within projectId. Used as pagination cursor." },
+        "type": { "$ref": "#/$defs/EventType" },
+        "refType": { "type": "string" },
+        "refId": { "$ref": "#/$defs/Id" },
+        "payload": { "$ref": "#/$defs/Json" },
+        "actorUserId": { "$ref": "#/$defs/Id" },
+        "createdAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "ExternalLink": {
+      "type": "object",
+      "required": ["id", "projectId", "refType", "refId", "externalType", "externalId", "externalUrl", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "refType": { "type": "string", "enum": ["WORK_ITEM", "ARTIFACT"] },
+        "refId": { "$ref": "#/$defs/Id" },
+        "externalType": { "$ref": "#/$defs/ExternalType" },
+        "externalId": { "type": "string" },
+        "externalUrl": { "type": "string", "format": "uri" },
+        "metadata": { "$ref": "#/$defs/Json" },
+        "createdAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "ExternalEvent": {
+      "type": "object",
+      "required": ["id", "projectId", "source", "externalEventId", "kind", "receivedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "source": { "$ref": "#/$defs/ExternalSource" },
+        "externalEventId": { "type": "string", "description": "Idempotency key from the external system." },
+        "kind": { "type": "string", "examples": ["pr_opened", "pr_merged", "ci_failed", "ci_succeeded", "issue_commented"] },
+        "payload": { "$ref": "#/$defs/Json" },
+        "linkedWorkItemId": { "$ref": "#/$defs/Id" },
+        "mappedEventId": { "$ref": "#/$defs/Id" },
+        "receivedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "MetricSnapshot": {
+      "type": "object",
+      "required": ["id", "projectId", "periodKey", "computedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "projectId": { "$ref": "#/$defs/Id" },
+        "periodKey": { "type": "string", "examples": ["2026-W16", "2026-04"] },
+        "wipCount": { "type": "integer", "minimum": 0 },
+        "cycleTimeP50Hours": { "type": "number", "minimum": 0 },
+        "cycleTimeP90Hours": { "type": "number", "minimum": 0 },
+        "reviewPassRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bugRate": { "type": "number", "minimum": 0 },
+        "budgetConsumed": { "type": "number", "minimum": 0 },
+        "budgetRemaining": { "type": "number" },
+        "membersStats": { "$ref": "#/$defs/Json" },
+        "computedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "NotificationChannel": {
+      "type": "object",
+      "required": ["id", "userId", "platform", "externalAccountId", "enabled", "priority"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "userId": { "$ref": "#/$defs/Id" },
+        "platform": { "$ref": "#/$defs/NotificationPlatform" },
+        "externalAccountId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "priority": { "type": "integer", "minimum": 0, "description": "Lower = try first." },
+        "enabled": { "type": "boolean" },
+        "verifiedAt": { "$ref": "#/$defs/ISODate" },
+        "pairingCode": { "type": "string" },
+        "pairingExpiresAt": { "$ref": "#/$defs/ISODate" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    },
+
+    "NotificationDelivery": {
+      "type": "object",
+      "required": ["id", "refType", "refId", "userId", "channelId", "platform", "templateKey", "status", "attempts", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "refType": { "type": "string", "enum": ["PROPOSAL", "EVENT", "REPORT"] },
+        "refId": { "$ref": "#/$defs/Id" },
+        "userId": { "$ref": "#/$defs/Id" },
+        "channelId": { "$ref": "#/$defs/Id" },
+        "platform": { "$ref": "#/$defs/NotificationPlatform" },
+        "templateKey": { "type": "string" },
+        "status": { "$ref": "#/$defs/NotificationDeliveryStatus" },
+        "attempts": { "type": "integer", "minimum": 0 },
+        "lastError": { "type": "string" },
+        "messageExternalId": { "type": "string", "description": "Platform-native message id, used for reply correlation and dedup." },
+        "replyPayload": { "$ref": "#/$defs/Json" },
+        "createdAt": { "$ref": "#/$defs/ISODate" },
+        "updatedAt": { "$ref": "#/$defs/ISODate" }
+      }
+    }
+  }
+}

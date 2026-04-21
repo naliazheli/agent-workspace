@@ -1,0 +1,18 @@
+{
+  "name": "@agent-workspace/types",
+  "version": "0.2.0-draft",
+  "description": "TypeScript types for agent-workspace core entities and MCP tool surface.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/naliazheli/agent-workspace.git",
+    "directory": "schemas/typescript"
+  },
+  "keywords": ["mcp", "agents", "multi-agent", "spec", "agent-workspace"],
+  "main": "index.ts",
+  "types": "index.ts",
+  "files": ["index.ts", "README.md"],
+  "publishConfig": {
+    "access": "public"
+  }
+}
