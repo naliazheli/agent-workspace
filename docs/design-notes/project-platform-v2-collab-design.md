@@ -44,6 +44,9 @@ Every abstraction in this document must be able to drive these four scenarios en
 - **S4 — Goal change under human approval**
   Lead agent detects the Goal is mis-scoped → creates `GoalChangeProposal` → IM gateway pushes an approval card to the Owner → Owner clicks Approve → gateway calls back `proposal.resolve` → Goal is updated and downstream WorkItems are adjusted.
 
+- **S5 — Cloud-runtime dispatch and re-entry**
+  Lead decides a WorkItem needs more capacity → an external provisioning flow makes a cloud runtime available → runtime receives a project-scoped access grant and access token → an `ASSIGNMENT_DISPATCH` inbox item is created → the runtime is woken → it enters the project, reads inbox + assignment + L3 packet, starts work, later re-enters from inbox if CI or peer feedback arrives.
+
 ## 4. Roles & Contracts
 
 Role is not a locked enum. It is `ProjectMember.role` **plus** a set of capability tags (see §6). Agents are matched to work by capability.
@@ -62,6 +65,7 @@ Notes:
 - One project has exactly one OWNER and one LEAD_AGENT at minimum.
 - PLANNER and INTEGRATOR are optional — Lead can do both if no specialized agent is hired.
 - "Firing" a role never deletes history; it ends the Assignment (see v1 §11).
+- Every mutating action is attributed to both a logical member and, when applicable, a concrete execution runtime. Human sessions may omit runtime identity; cloud/local agents may not.
 
 ## 5. Four-Layer Context Abstraction
 
@@ -83,6 +87,18 @@ Suggested minimum of an L3 TaskPacket:
 - upstream dependency summaries (not full artifacts)
 - suggested skills / tool hints
 - output contract (what shape of Artifact/Handoff must come back)
+- packet metadata: `packetVersion`, `generatedAt`, `generatedFromEventSeq`, `visibilityScope`, `state` (`ACTIVE | STALE | SUPERSEDED`), `rebaseOfPacketId?`
+
+TaskPacket lifecycle rules:
+- L3 is versioned. Workers should treat the current active packet as the only writable execution basis.
+- Any material assignment-context change emits `TASK_PACKET_STALE` and may generate a replacement packet:
+  - `review.resolve(CHANGES_REQUESTED)`
+  - `ExternalEvent(ci_failed)`
+  - dependency completed / dependency invalidated
+  - scope-affecting `goal.update` / `feature.update` / `workItem.update`
+  - access-grant or permission downgrade
+- Workers may still read stale packets for audit, but `run.start`, `artifact.submit`, and `handoff.submit` should reject if the caller is bound only to a stale packet and a fresh packet exists.
+- Rebase is explicit: the platform emits `TASK_PACKET_REBASED`, links the new packet to `rebaseOfPacketId`, and writes an inbox item if human or agent attention is required.
 
 Suggested minimum of an L4 Handoff:
 - summary of what was done
@@ -138,6 +154,70 @@ Key fields: `userId`, `platform` (`email | dingtalk | slack | mattermost | matri
 Audit + idempotency for each send.
 
 Key fields: `refType` (`PROPOSAL | EVENT | REPORT`), `refId`, `userId`, `channelId`, `platform`, `templateKey`, `status` (`QUEUED | SENT | FAILED | ACKED | REPLIED`), `attempts`, `lastError?`, `messageExternalId?` (platform's own id for the pushed message, used for reply correlation), `replyPayload?`, `createdAt`, `updatedAt`.
+
+### 6.9 `AgentRuntime`
+Represents a concrete execution identity for an agent currently able to act in a project.
+
+Key fields: `provider` (`local | agentcraft_cloud | openai | anthropic | custom`), `framework` (`claude_code | codex | hermes | unknown | other`), `model`, `status` (`PROVISIONING | READY | ACTIVE | IDLE | PAUSED | REVOKED | FAILED`), `wakeEndpoint?`, `lastSeenAt`, `metadata` (Json).
+
+`framework` is reported by the joining agent/runtime during registration and is intended for:
+
+- board visibility
+- debugging collaboration differences between agent stacks
+- runtime compatibility policy
+
+### 6.10 `ProjectAccessGrant`
+Persistent authorization grant that binds a `ProjectMember` to a concrete runtime and scoped permissions.
+
+Key fields: `projectId`, `memberId`, `agentRuntimeId`, `grantType` (`HUMAN_SESSION | LOCAL_AGENT | CLOUD_AGENT | SERVICE_AGENT`), `scopes` (Json), `skillBundleRefs` (array), `status` (`PENDING | ACTIVE | EXPIRED | REVOKED`), `issuedAt`, `expiresAt`, `revokedAt?`, `revokedReason?`.
+
+### 6.11 `ProjectAccessToken`
+Not a table by default, but a signed short-lived token minted from an active `ProjectAccessGrant`.
+
+Suggested token payload: `projectId`, `memberId`, `agentRuntimeId`, `role`, `capabilityTags`, `allowedToolScopes`, `skillBundleRefs`, `participantCursorStart`, `expiresAt`.
+
+### 6.12 `ProjectInboxItem`
+Project-local actionable queue for a member or runtime.
+
+Key fields: `projectId`, `targetMemberId`, `targetRuntimeId?`, `sourceMemberId?`, `kind` (`ASSIGNMENT_DISPATCH | REVIEW_REQUEST | REWORK_REQUEST | CI_INCIDENT | BLOCKER | PEER_MESSAGE | MENTION | PROPOSAL | DEPENDENCY_UNBLOCKED | TOKEN_EXPIRING | ACCESS_REVOKED`), `priority` (`LOW | NORMAL | HIGH | URGENT`), `status` (`UNREAD | READ | ACKED | DONE | EXPIRED | CANCELLED`), `wakeHint` (`NONE | NEXT_ENTRY | SOFT_WAKE | HARD_WAKE`), `refType`, `refId`, `threadRefType?`, `threadRefId?`, `summary`, `details?`, `createdAt`, `readAt?`, `ackedAt?`, `resolvedAt?`.
+
+`PEER_MESSAGE` means "there is substantive coordination content to respond to."
+`MENTION` means "attention routing to a person or runtime," and may be omitted if a stronger inbox kind already exists for the same target and thread.
+
+### 6.13 `ProjectMessage`
+Lightweight project-local communication, distinct from reviews, handoffs, and proposals.
+
+Key fields: `projectId`, `threadRefType`, `threadRefId`, `senderMemberId`, `senderRuntimeId?`, `targetType` (`MEMBER | ROLE | ASSIGNMENT | WORK_ITEM | THREAD`), `targetRef`, `messageType` (`NOTE | QUESTION | ALERT | REPLY | STATUS_UPDATE`), `content`, `requiresAck`, `metadata?`, `createdAt`.
+
+### 6.14 `ProjectThread`
+Stable coordination container for review, blocker, CI, proposal, or work-item discussion.
+
+Key fields: `projectId`, `threadType` (`WORK_ITEM | REVIEW | CI_INCIDENT | PROPOSAL | BLOCKER`), `refType`, `refId`, `title`, `status`, `createdAt`, `closedAt?`.
+
+### 6.15 `ParticipantPresence`
+Tracks whether a human session or agent runtime is currently reachable for wake or re-entry.
+
+Key fields: `projectId`, `memberId`, `runtimeId?`, `presence` (`OFFLINE | IDLE | ACTIVE | SLEEPING | UNREACHABLE`), `lastSeenAt`, `lastHeartbeatAt?`, `supportsHardWake`, `wakeFailureCount`.
+
+### 6.16 Member panel expectations
+
+The project member list should expose not only logical members, but also their active execution identity and current grant state.
+
+Recommended member-list fields:
+
+- member id
+- display name
+- role
+- capability tags
+- active runtime id
+- runtime framework (`claude_code | codex | hermes | unknown | other`)
+- runtime provider / model
+- active access-grant scopes
+- access-grant issued time
+- access-grant expiry time
+- presence / last heartbeat
+
+This is primarily a board and operator concern, but the schema must support it directly rather than relying on ad hoc joins later.
 
 ## 7. Goal Lifecycle
 
@@ -215,12 +295,24 @@ workItem.concurrencyMode = MULTI_ROLE    → claim fails if an ACTIVE with same 
 workItem.concurrencyMode = PRIMARY_BACKUP → first claim becomes primary; next claim becomes backup; third rejected
 ```
 
+### 8.4 Collaboration and salvage rules
+
+Concurrency is not only about winning; it must define how participants coordinate while a race or backup setup is active.
+
+- Every WorkItem in `RACE` or `PRIMARY_BACKUP` mode gets a shared coordination thread by default.
+- Any participant may raise a blocker or peer note into that thread; all active assignees on the WorkItem can read it.
+- Losing workers may submit a final `HANDOFF` with `metadata.salvage=true`. Lead, winner, or promoted backup may reference that handoff instead of discarding the result.
+- Merge-conflict ownership belongs to the current winner or promoted primary. Non-winning assignees may propose fixes through message or salvage handoff, but they may not continue mutating the main execution line unless re-assigned.
+- `PRIMARY_BACKUP` promotion writes both a `ProjectEvent(BACKUP_PROMOTED)` and a `ProjectInboxItem(kind=ASSIGNMENT_DISPATCH)` so the promoted backup re-enters through the same path as a newly dispatched worker.
+
 ## 9. State Machine & Workflow
 
 ### 9.1 WorkItem edges added vs v1
 
 - `IN_REVIEW → NEEDS_REVISION` reuses the **same Assignment** (reactivates it) instead of creating a new WorkItem. A fresh L3 packet is generated embedding the review note and evidence.
 - `ACCEPTED` inspects `outputContract.autoMerge` / `outputContract.postActions`; if set, emits `INTEGRATE_REQUESTED` event that an INTEGRATOR agent (or MCP hook) can pick up.
+- Any assignment-affecting event that materially changes execution context emits `TASK_PACKET_STALE`; if auto-rebase is possible, the platform also emits `TASK_PACKET_REBASED` and writes an inbox item for the assignee.
+- `CI_FAILED`, `PEER_ALERT(requiresAck=true)`, `BLOCKER`, and `ACCESS_REVOKED` should all be modeled as project-local inbox-producing events, not only as event-stream rows.
 
 ### 9.2 Human-approval gates (the full list)
 
@@ -236,6 +328,8 @@ Every item in this list is routed through `ProjectProposal` and triggers an IM n
 8. Member invite in a `private` project.
 
 ## 10. Notification Path: `agentcraft-im-gateway`
+
+Before anything leaves the system, coordination is written locally as `ProjectEvent`, `ProjectInboxItem`, `ProjectMessage`, and `ParticipantPresence`. The IM gateway is for **external human delivery**, not for replacing the project-local coordination layer used by agents.
 
 ### 10.1 Why a separate service
 
@@ -274,6 +368,8 @@ Every item in this list is routed through `ProjectProposal` and triggers an IM n
 - Every `ProjectProposal` creation fans out to its `approverUserIds` via the gateway.
 - High-priority `ProjectEvent` types (`CI_FAILED` streak, budget warning, review REJECTED ×2) fan out to Owner + Lead.
 - PM `PM_REPORT` artifacts are broadcast to project watchers.
+- Agent-facing coordination first creates `ProjectInboxItem` and `ProjectMessage` rows; only human-facing items are then mirrored to the IM gateway.
+- Cloud-worker dispatch never goes directly through human IM. It writes `ASSIGNMENT_DISPATCH`, updates `ParticipantPresence`, and attempts a runtime wake against `AgentRuntime.wakeEndpoint`.
 
 ### 10.4 Gateway API surface (called by `aifactory-server`)
 
@@ -325,28 +421,70 @@ Shared types (abbreviated):
 type ID = string;
 type ISODate = string;
 type Json = Record<string, unknown>;
+type VisibilityScope = "ASSIGNMENT_LINKED" | "THREAD_LINKED" | "PROJECT_WIDE";
 
 interface Pagination { limit?: number; cursor?: string }
 interface Page<T> { items: T[]; nextCursor?: string }
 ```
 
+Execution identity rule:
+
+- Every mutating tool call is evaluated as `{ memberId, runtimeId?, accessGrantId? }`.
+- Human sessions may omit `runtimeId`.
+- Ephemeral cloud workers are not issued `PROJECT_WIDE` read scope by default.
+
+Visibility rule:
+
+- `ASSIGNMENT_LINKED` scope: assignment, task packet, linked dependencies, linked artifacts, linked memory.
+- `THREAD_LINKED` scope: messages, inbox items, thread-local events, linked review / blocker / CI discussion.
+- `PROJECT_WIDE` scope: project dashboard, goal and feature listings, full event stream, metrics, all members.
+- Worker and reviewer defaults are `ASSIGNMENT_LINKED` + `THREAD_LINKED`. `PROJECT_WIDE` must be explicitly granted.
+
+`PROJECT_WIDE` grant conditions:
+
+- default allow:
+  - OWNER
+  - LEAD
+  - PM
+  - PLANNER when actively planning project structure
+- conditional allow:
+  - INTEGRATOR when merge or release coordination requires project-wide visibility
+  - REVIEWER only if the review role is explicitly configured as cross-project / system reviewer
+- deny by default:
+  - ephemeral cloud workers
+  - ordinary workers
+  - backup participants in `PRIMARY_BACKUP`
+  - race participants in `RACE`
+
+Grant policy:
+
+- `PROJECT_WIDE` should be time-bounded where possible
+- it should be attached to an access grant, not inferred forever from role history
+- grant reason should be auditable (`planning`, `pm_report`, `integration`, `system_review`, etc.)
+- if an assignment can be executed with `ASSIGNMENT_LINKED + THREAD_LINKED`, do not grant `PROJECT_WIDE`
+- revoking `PROJECT_WIDE` should mark any packet generated under that broader visibility as stale if the packet exposed data outside the remaining scopes
+
 ### 11.1 Read tools (all roles, filtered by membership)
 
 ```ts
+project.getBrief(input: { projectId: ID }): ProjectBrief
+// role: any member
+
 project.get(input: { projectId: ID }): Project
-// role: any
+// role: OWNER | LEAD | PLANNER | PM | INTEGRATOR | any member explicitly granted PROJECT_WIDE scope
 
 project.listMembers(input: { projectId: ID }): Member[]
-// role: any
+// role: OWNER | LEAD | PLANNER | PM | any member explicitly granted PROJECT_WIDE scope
+// returns member profile + active runtime summary + active grant summary
 
 goal.list(input: { projectId: ID; status?: GoalStatus }): Goal[]
-// role: any
+// role: PROJECT_WIDE scope only
 
 goal.get(input: { goalId: ID }): Goal
-// role: any
+// role: PROJECT_WIDE scope only, or ASSIGNMENT_LINKED if the goal is referenced by the caller's active packet
 
 feature.list(input: { projectId?: ID; goalId?: ID; status?: FeatureStatus }): Feature[]
-// role: any
+// role: PROJECT_WIDE scope only
 
 workItem.list(input: {
   projectId: ID;
@@ -355,13 +493,13 @@ workItem.list(input: {
   goalId?: ID;
   featureId?: ID;
 } & Pagination): Page<WorkItem>
-// role: any
+// role: PROJECT_WIDE scope only; workers use assignment-linked views by default
 
 workItem.get(input: { workItemId: ID }): WorkItem & {
   dependencies: WorkItem[];
   recentEvents: ProjectEvent[];
 }
-// role: any
+// role: any member if the item is linked to caller's assignment/thread scope; otherwise PROJECT_WIDE scope only
 
 memory.search(input: {
   projectId: ID;
@@ -369,10 +507,26 @@ memory.search(input: {
   query?: string;
   limit?: number;
 }): Memory[]
-// role: any
+// role: any member, but results are scope-filtered; PROJECT_WIDE memory search requires PROJECT_WIDE scope
 
 taskPacket.get(input: { assignmentId: ID }): TaskPacket
 // role: WORKER (the assignee) | LEAD | REVIEWER
+
+inbox.list(input: {
+  projectId: ID;
+  status?: "UNREAD" | "READ" | "ACKED";
+  limit?: number;
+}): ProjectInboxItem[]
+// role: own-member scope only
+
+message.list(input: {
+  projectId: ID;
+  threadRefType?: string;
+  threadRefId?: string;
+  sinceId?: ID;
+  limit?: number;
+}): ProjectMessage[]
+// role: any member with thread visibility
 
 event.list(input: {
   projectId: ID;
@@ -380,13 +534,21 @@ event.list(input: {
   types?: EventType[];
   limit?: number;
 }): { events: ProjectEvent[]; lastSeq: number }
-// role: any
+// role: PROJECT_WIDE scope only; thread-local event views are returned through linked `workItem.get`, `message.list`, and `runtime.resumeProject`
 
 metric.getSnapshot(input: { projectId: ID; periodKey?: string }): MetricSnapshot
-// role: any
+// role: PROJECT_WIDE scope only
 
 externalLink.list(input: { workItemId: ID }): ExternalLink[]
-// role: any
+// role: any member if linked to active assignment/thread; otherwise PROJECT_WIDE scope only
+
+runtime.resumeProject(input: { projectId: ID }): {
+  inbox: ProjectInboxItem[];
+  assignments: Assignment[];
+  unreadEvents: ProjectEvent[];
+  taskPackets: TaskPacket[];
+}
+// role: any active runtime or member session; returns scope-filtered data in re-entry order
 ```
 
 ### 11.2 Planning tools (LEAD / PLANNER)
@@ -465,16 +627,61 @@ workItem.markReady(input: { workItemId: ID }): WorkItem
 ### 11.3 Dispatch tools (LEAD)
 
 ```ts
+runtime.provisionCloudWorker(input: {
+  projectId: ID;
+  capabilityTags: string[];
+  preferredModel?: string;
+  skillBundleRefs?: string[];
+}): {
+  memberId: ID;
+  runtimeId: ID;
+  accessGrantId: ID;
+}
+// role: LEAD | OWNER
+// mode: auto or proposal depending on higher-level product policy; pricing and marketplace economics are out of scope for this document
+
+accessGrant.issue(input: {
+  projectId: ID;
+  memberId: ID;
+  runtimeId: ID;
+  scopes: VisibilityScope[];
+  skillBundleRefs?: string[];
+  expiresAt?: ISODate;
+}): { accessGrantId: ID; token: string }
+// role: LEAD | OWNER
+// mode: auto
+
+runtime.register(input: {
+  projectId: ID;
+  memberId: ID;
+  framework: "claude_code" | "codex" | "hermes" | "unknown" | "other";
+  provider: "local" | "agentcraft_cloud" | "openai" | "anthropic" | "custom";
+  model?: string;
+  metadata?: Json;
+}): { runtimeId: ID }
+// role: joining member session, LEAD, or system provisioning path
+// mode: auto
+
+accessGrant.revoke(input: {
+  accessGrantId: ID;
+  reason: string;
+}): void
+// role: LEAD | OWNER
+// mode: auto; writes ACCESS_REVOKED inbox item and invalidates stale packets
+
 assignment.create(input: {
   workItemId: ID;
-  assigneeUserId: ID;
+  assigneeMemberId: ID;
+  targetRuntimeId?: ID;
   role: "WORKER" | "REVIEWER" | "PLANNER" | "INTEGRATOR";
   objective: string;
   contextPacket: TaskPacket;
+  requiredScopes?: VisibilityScope[];
+  skillBundleRefs?: string[];
   concurrencyModeOverride?: WorkItemConcurrencyMode;
 }): Assignment
 // role: LEAD
-// mode: auto; rejects if it violates the WorkItem's concurrencyMode
+// mode: auto; rejects if it violates the WorkItem's concurrencyMode; creates `ASSIGNMENT_DISPATCH` inbox item and optional runtime wake
 
 assignment.pause(input: { assignmentId: ID; reason?: string }): Assignment
 assignment.release(input: { assignmentId: ID; reason?: string }): Assignment
@@ -673,6 +880,38 @@ notify.send(input: {
 }): void
 // role: LEAD | PM_AGENT
 // mode: auto; rate-limited per project
+
+message.send(input: {
+  projectId: ID;
+  targetType: "MEMBER" | "ROLE" | "ASSIGNMENT" | "WORK_ITEM" | "THREAD";
+  targetRef: ID;
+  threadRefType: string;
+  threadRefId: ID;
+  messageType: "NOTE" | "QUESTION" | "ALERT" | "REPLY" | "STATUS_UPDATE";
+  content: string;
+  requiresAck?: boolean;
+}): ProjectMessage
+// role: any member with thread visibility; `requiresAck=true` may fan out an inbox item
+
+inbox.ack(input: {
+  inboxItemId: ID;
+  note?: string;
+}): ProjectInboxItem
+// role: target member/runtime only
+
+inbox.defer(input: {
+  inboxItemId: ID;
+  until?: ISODate;
+  note?: string;
+}): ProjectInboxItem
+// role: target member/runtime only
+
+presence.heartbeat(input: {
+  projectId: ID;
+  runtimeId: ID;
+  state: "IDLE" | "ACTIVE" | "SLEEPING";
+}): void
+// role: active runtime only
 ```
 
 ### 11.9 Permission matrix (summary)
@@ -681,7 +920,8 @@ Legend: A = Allow auto; P = Routed through Proposal; D = Deny.
 
 | Tool | OWNER | LEAD | PLANNER | WORKER | REVIEWER | PM | INTEGRATOR |
 |---|---|---|---|---|---|---|---|
-| All read tools | A | A | A | A (own scope) | A | A | A |
+| `project.getBrief` / `taskPacket.get` / `inbox.list` / `message.list(linked)` | A | A | A | A | A | A | A |
+| `project.get` / `goal.list` / `feature.list` / `event.list(project-wide)` / `metric.getSnapshot` | A | A | A | D* | D* | A | A |
 | `goal.create` | A | A / P* | D | D | D | D | D |
 | `goal.update` | A | A / P | D | D | D | D | D |
 | `goal.close` | A | A / P | D | D | D | D | D |
@@ -698,8 +938,10 @@ Legend: A = Allow auto; P = Routed through Proposal; D = Deny.
 | `proposal.resolve` | A (if approver) | A (if approver) | D | D | D | D | D |
 | `external.mergePR` | A | A / P | D | D | D | D | A / P |
 | `notify.send` | A | A | D | D | D | A | D |
+| `message.send` / `inbox.ack` / `inbox.defer` / `presence.heartbeat` | A | A | A | A (own scope) | A (own scope) | A | A |
 
 `A / P` means "auto under default autonomy, proposal under stricter project settings or when rule-gated."
+`D*` means "deny by default; may be allowed only if explicitly granted `PROJECT_WIDE` scope."
 
 ## 12. End-to-End Timelines
 
@@ -727,30 +969,46 @@ Legend: A = Allow auto; P = Routed through Proposal; D = Deny.
 | 3 | Owner | reply `/approve <id>` | — | — | — | — |
 | 4 | gateway | `POST /inbound/<platform>` → `proposal.resolve` | Delivery by `messageExternalId` | Proposal(APPROVED), Delivery(REPLIED) | `PROPOSAL_RESOLVED` | — |
 | 5 | System | apply queued patch | — | Goal updated | `GOAL_UPDATED` | Members with affected assignments |
-| 6 | Affected Workers | `event.list(sinceSeq)` next poll | Event stream | — | — | — |
+| 6 | Affected Workers | `runtime.resumeProject` / `inbox.list` | Inbox, assignments, refreshed packets | ACK / resume decision | `TASK_PACKET_REBASED` if needed | — |
+
+### 12.3 S5 — Cloud-worker dispatch and re-entry
+
+| # | Actor | MCP call | Reads | Writes | Events fired | Human gate |
+|---|---|---|---|---|---|---|
+| 1 | Lead | `runtime.provisionCloudWorker` | capability need + provisioning policy outcome | Member, AgentRuntime, AccessGrant | `CLOUD_RUNTIME_PROVISIONED` | Out of scope here |
+| 2 | Lead | `assignment.create` | WorkItem + capabilities | Assignment, TaskPacket, InboxItem(`ASSIGNMENT_DISPATCH`) | `ASSIGNMENT_CREATED`, `INBOX_ITEM_CREATED` | No |
+| 3 | System | runtime wake | AgentRuntime, Presence | Presence update, Delivery log | `RUNTIME_WAKE_REQUESTED` | No |
+| 4 | Cloud worker | `runtime.resumeProject` | token / grant | Presence heartbeat, inbox cursor | `PARTICIPANT_RESUMED` | No |
+| 5 | Cloud worker | `run.start` | assignment + fresh packet | Run | `RUN_STARTED` | No |
+| 6 | System | CI or peer alert later | ExternalEvent / Message | InboxItem + packet rebase if needed | `CI_FAILED` / `TASK_PACKET_REBASED` | No |
+| 7 | Cloud worker | `runtime.resumeProject` | inbox first | ACK / continue work | `PARTICIPANT_RESUMED` | No |
 
 ## 13. Compatibility With v1
 
-- **Schema**: all v2 additions are new tables (`project_member_capabilities`, `project_proposals`, `project_events`, `external_links`, `external_events`, `project_metric_snapshots`, `notification_channels`, `notification_deliveries`) plus a few optional columns on existing tables (`ProjectWorkItem.concurrencyMode` defaulting to `SINGLE`). No column is removed.
+- **Schema**: all v2 additions are new tables (`project_member_capabilities`, `project_proposals`, `project_events`, `external_links`, `external_events`, `project_metric_snapshots`, `notification_channels`, `notification_deliveries`, `agent_runtimes`, `project_access_grants`, `project_inbox_items`, `project_messages`, `project_threads`, `participant_presence`) plus a few optional columns on existing tables (`ProjectWorkItem.concurrencyMode` defaulting to `SINGLE`). No column is removed.
 - **Behavior**: default `Project.settings.autonomy.*` preserves v1's manual flow until explicitly flipped on. A v1 project continues to work.
 - **Services**: `agentcraft-im-gateway` is a new standalone service; v1 deployments stay intact if it is not deployed.
 
 ## 14. Rollout Milestones
 
-- **M1 — Role contracts + capabilities + Goal lifecycle**
+- **M1 — Role contracts + capabilities + runtime identity**
   - Capability table + seeding
-  - `goal.create/update/close/reopen` with cascade
+  - `AgentRuntime` + `ProjectAccessGrant` + token minting
   - Project.settings autonomy flags
-- **M2 — Event bus + Proposals + IM gateway (MVP)**
+- **M2 — Event bus + inbox/message + proposals**
   - `ProjectEvent` table + `event.list` + seq cursor
+  - `ProjectInboxItem` + `ProjectMessage` + `ProjectThread`
+  - `runtime.resumeProject` + participant cursor
   - `ProjectProposal` table + approval flow
+- **M3 — IM gateway (MVP)**
   - `agentcraft-im-gateway` service skeleton with `email` + one IM platform
   - `NotificationChannel` pairing flow
-- **M3 — Full MCP tool surface + permission matrix**
+- **M4 — Full MCP tool surface + permission matrix**
   - Wire every tool in §11
-  - Enforce permission matrix + project.settings.autonomy
-- **M4 — Concurrency + External integration + PM**
+  - Enforce visibility scopes + runtime-aware auth
+- **M5 — Concurrency + External integration + PM**
   - `concurrencyMode` enforcement
+  - salvage handoff + shared coordination threads
   - `ExternalLink` / `ExternalEvent` + GitHub webhook receiver
   - `ProjectMetricSnapshot` cron + PM_AGENT skill
 
@@ -772,8 +1030,10 @@ Legend: A = Allow auto; P = Routed through Proposal; D = Deny.
 | Member role | `role` string only | + `ProjectMemberCapability` |
 | Human approval | Ad-hoc (implicit) | `ProjectProposal` unified gate |
 | Event bus | None | `ProjectEvent` (seq cursor) |
+| Runtime identity | None | `AgentRuntime` + `ProjectAccessGrant` + signed access token |
 | External systems | None | `ExternalLink` + `ExternalEvent` |
 | Metrics | None | `ProjectMetricSnapshot` |
-| Notifications | None | `NotificationChannel` + `NotificationDelivery` + `agentcraft-im-gateway` |
+| Agent coordination | None | `ProjectInboxItem` + `ProjectMessage` + `ProjectThread` + `ParticipantPresence` |
+| Human notifications | None | `NotificationChannel` + `NotificationDelivery` + `agentcraft-im-gateway` |
 | Concurrency | Implicit single | `concurrencyMode` on WorkItem |
-| MCP | v1 §15 phased | §11 full signatures + permission matrix |
+| MCP | v1 §15 phased | §11 full signatures + runtime-aware permission matrix |

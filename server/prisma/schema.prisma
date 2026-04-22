@@ -1,0 +1,369 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id
+  email       String   @unique
+  displayName String?
+  role        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Project {
+  id              String   @id
+  name            String
+  slug            String   @unique
+  summary         String?
+  brief           String?
+  status          String
+  visibility      String
+  ownerId         String
+  leadAgentUserId String?
+  budgetAmount    Float
+  budgetCurrency  String
+  settings        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id
+  projectId String
+  userId    String
+  role      String
+  permissions Json?
+  joinedAt  DateTime @default(now())
+  removedAt DateTime?
+
+  @@unique([projectId, userId, role])
+  @@index([projectId, userId])
+  @@map("project_members")
+}
+
+model ProjectGoal {
+  id        String   @id
+  projectId String
+  title     String
+  status    String
+  sortOrder Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, status, sortOrder])
+  @@map("project_goals")
+}
+
+model ProjectFeature {
+  id        String   @id
+  projectId String
+  goalId    String?
+  title     String
+  status    String
+  sortOrder Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, status, sortOrder])
+  @@index([goalId])
+  @@map("project_features")
+}
+
+model ProjectWorkItem {
+  id              String   @id
+  projectId       String
+  goalId          String?
+  featureId       String?
+  parentWorkItemId String?
+  title           String
+  description     String?
+  workType        String
+  status          String
+  priority        Int
+  scopeBrief      String?
+  acceptanceCriteria String?
+  inputPacket     Json?
+  outputContract  Json?
+  dependsOn       Json?
+  concurrencyMode String
+  createdById     String
+  ownerId         String?
+  dueAt           DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([projectId, status, priority, createdAt])
+  @@index([featureId])
+  @@index([goalId])
+  @@map("project_work_items")
+}
+
+model ProjectAssignment {
+  id               String   @id
+  projectId        String
+  workItemId       String
+  assigneeUserId   String
+  assignedByUserId String
+  role             String
+  status           String
+  objective        String?
+  contextPacket    Json?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([projectId, status, createdAt])
+  @@index([workItemId, status])
+  @@index([assigneeUserId, status])
+  @@map("project_assignments")
+}
+
+model ProjectArtifact {
+  id              String   @id
+  projectId       String
+  workItemId      String?
+  assignmentId    String?
+  runId           String?
+  artifactType    String
+  title           String?
+  content         String?
+  url             String?
+  metadata        Json?
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([assignmentId])
+  @@map("project_artifacts")
+}
+
+model ProjectReview {
+  id             String   @id
+  projectId      String
+  workItemId     String
+  assignmentId   String?
+  artifactId     String?
+  reviewerUserId String?
+  reviewerType   String
+  status         String
+  reviewNote     String?
+  checklistResult Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([projectId, status, createdAt])
+  @@index([assignmentId])
+  @@map("project_reviews")
+}
+
+model ProjectProposal {
+  id               String   @id
+  projectId        String
+  type             String
+  payload          Json
+  reason           String?
+  createdByUserId  String
+  approverUserIds  Json
+  status           String
+  resolvedByUserId String?
+  resolvedNote     String?
+  expiresAt        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([projectId, status, createdAt])
+  @@index([projectId, type, status])
+  @@map("project_proposals")
+}
+
+model ProjectEvent {
+  id           String   @id
+  projectId    String
+  seq          Int
+  type         String
+  refType      String?
+  refId        String?
+  payload      Json?
+  actorUserId  String?
+  createdAt    DateTime @default(now())
+
+  @@unique([projectId, seq])
+  @@index([projectId, type, createdAt])
+  @@index([projectId, refType, refId])
+  @@map("project_events")
+}
+
+model AgentRuntime {
+  id            String   @id
+  memberId      String?  @map("member_id")
+  provider      String
+  framework     String
+  model         String?
+  status        String
+  wakeEndpoint  String?  @map("wake_endpoint")
+  metadata      Json?
+  registeredAt  DateTime @default(now()) @map("registered_at")
+  lastSeenAt    DateTime? @map("last_seen_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([memberId, status])
+  @@index([framework, status])
+  @@map("agent_runtimes")
+}
+
+model ProjectAccessGrant {
+  id                  String   @id
+  projectId           String   @map("project_id")
+  memberId            String   @map("member_id")
+  runtimeId           String   @map("runtime_id")
+  grantType           String   @map("grant_type")
+  scopes              Json
+  skillBundleRefs     Json?    @map("skill_bundle_refs")
+  status              String
+  reason              String?
+  issuedByMemberId    String?  @map("issued_by_member_id")
+  issuedAt            DateTime @default(now()) @map("issued_at")
+  expiresAt           DateTime? @map("expires_at")
+  revokedAt           DateTime? @map("revoked_at")
+  revokedReason       String?  @map("revoked_reason")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId, memberId, status])
+  @@index([projectId, runtimeId, status])
+  @@index([projectId, expiresAt])
+  @@map("project_access_grants")
+}
+
+model ParticipantPresence {
+  id               String   @id
+  projectId        String   @map("project_id")
+  memberId         String   @map("member_id")
+  runtimeId        String?  @map("runtime_id")
+  presence         String
+  supportsHardWake Boolean  @default(false) @map("supports_hard_wake")
+  wakeFailureCount Int      @default(0) @map("wake_failure_count")
+  statusMessage    String?  @map("status_message")
+  lastSeenAt       DateTime? @map("last_seen_at")
+  lastHeartbeatAt  DateTime? @map("last_heartbeat_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId, memberId, runtimeId])
+  @@index([projectId, presence])
+  @@index([projectId, lastHeartbeatAt])
+  @@map("participant_presence")
+}
+
+model ProjectThread {
+  id                String   @id
+  projectId         String   @map("project_id")
+  threadType        String   @map("thread_type")
+  refType           String   @map("ref_type")
+  refId             String   @map("ref_id")
+  title             String
+  status            String
+  createdByMemberId String?  @map("created_by_member_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([projectId, threadType])
+  @@index([projectId, refType, refId])
+  @@index([projectId, status])
+  @@map("project_threads")
+}
+
+model ProjectMessage {
+  id               String   @id
+  projectId        String   @map("project_id")
+  threadId         String   @map("thread_id")
+  senderMemberId   String?  @map("sender_member_id")
+  senderRuntimeId  String?  @map("sender_runtime_id")
+  messageType      String   @map("message_type")
+  visibility       String
+  targetMemberIds  Json?    @map("target_member_ids")
+  mentionMemberIds Json?    @map("mention_member_ids")
+  body             String
+  requiresAck      Boolean  @default(false) @map("requires_ack")
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, threadId, createdAt])
+  @@index([projectId, senderMemberId])
+  @@map("project_messages")
+}
+
+model ProjectInboxItem {
+  id                     String   @id
+  projectId              String   @map("project_id")
+  targetMemberId         String?  @map("target_member_id")
+  targetRuntimeId        String?  @map("target_runtime_id")
+  sourceMemberId         String?  @map("source_member_id")
+  kind                   String
+  ownerActionType        String   @map("owner_action_type")
+  priority               String
+  status                 String
+  wakeHint               String   @map("wake_hint")
+  refType                String?  @map("ref_type")
+  refId                  String?  @map("ref_id")
+  threadId               String?  @map("thread_id")
+  summary                String
+  details                Json?
+  supersededByInboxItemId String? @map("superseded_by_inbox_item_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  readAt                 DateTime? @map("read_at")
+  ackedAt                DateTime? @map("acked_at")
+  resolvedAt             DateTime? @map("resolved_at")
+
+  @@index([projectId, targetMemberId, status])
+  @@index([projectId, targetRuntimeId, status])
+  @@index([projectId, kind, status])
+  @@index([projectId, threadId])
+  @@index([projectId, createdAt])
+  @@map("project_inbox_items")
+}
+
+model ExternalLink {
+  id           String   @id
+  projectId    String   @map("project_id")
+  refType      String   @map("ref_type")
+  refId        String   @map("ref_id")
+  externalType String   @map("external_type")
+  externalId   String   @map("external_id")
+  externalUrl  String   @map("external_url")
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, refType, refId])
+  @@unique([externalType, externalId])
+  @@map("external_links")
+}
+
+model ExternalEvent {
+  id                  String   @id
+  projectId           String   @map("project_id")
+  source              String
+  externalEventId     String   @map("external_event_id")
+  kind                String
+  linkedWorkItemId    String?  @map("linked_work_item_id")
+  mappedProjectEventId String? @map("mapped_project_event_id")
+  payload             Json
+  receivedAt          DateTime @default(now()) @map("received_at")
+
+  @@unique([source, externalEventId])
+  @@index([projectId, kind, receivedAt])
+  @@index([projectId, linkedWorkItemId])
+  @@map("external_events")
+}
