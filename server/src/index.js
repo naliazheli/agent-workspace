@@ -31,10 +31,15 @@ const runtimeTokenSchema = z.object({
 const createProjectSchema = z.object({
   externalRef: z.string().trim().min(1).max(191).optional(),
   name: z.string().trim().min(1).max(191),
+  slug: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().optional(),
   ownerUserId: z.string().trim().min(1),
   leadUserId: z.string().trim().optional(),
+  visibility: z.string().trim().optional(),
+  budgetAmount: z.number().nonnegative().optional(),
+  budgetCurrency: z.string().trim().min(1).max(12).optional(),
   source: z.record(z.any()).optional(),
+  settings: z.record(z.any()).optional(),
   initialContext: z
     .object({
       brief: z.string().optional(),
@@ -169,8 +174,8 @@ function slugify(input) {
     .slice(0, 80);
 }
 
-async function resolveUniqueSlug(name) {
-  const base = slugify(name) || `project-${Date.now()}`;
+async function resolveUniqueSlug(name, preferredSlug) {
+  const base = slugify(preferredSlug || name) || `project-${Date.now()}`;
   let candidate = base;
   let suffix = 1;
 
@@ -415,6 +420,87 @@ app.post('/v1/host-sessions', async (request) => {
   };
 });
 
+app.get('/v1/projects', async (request) => {
+  await requireHost(request);
+  const query = request.query ?? {};
+  const page = Math.max(parseInt(query.page ?? '1', 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(query.limit ?? '20', 10) || 20, 1), 100);
+  const where = {};
+
+  if (query.status) {
+    where.status = query.status;
+  }
+
+  if (query.search) {
+    where.OR = [
+      { name: { contains: query.search } },
+      { summary: { contains: query.search } },
+      { brief: { contains: query.search } },
+    ];
+  }
+
+  const [projects, total] = await Promise.all([
+    prisma.project.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        summary: true,
+        brief: true,
+        status: true,
+        visibility: true,
+        ownerId: true,
+        leadAgentUserId: true,
+        budgetAmount: true,
+        budgetCurrency: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: {
+          select: {
+            members: true,
+            workItems: true,
+            artifacts: true,
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.project.count({ where }),
+  ]);
+
+  return {
+    data: projects.map((project) => ({
+      projectId: project.id,
+      name: project.name,
+      slug: project.slug,
+      summary: project.summary,
+      brief: project.brief,
+      status: project.status,
+      visibility: project.visibility,
+      ownerUserId: project.ownerId,
+      leadUserId: project.leadAgentUserId,
+      budgetAmount: project.budgetAmount,
+      budgetCurrency: project.budgetCurrency,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      counts: {
+        members: project._count.members,
+        workItems: project._count.workItems,
+        artifacts: project._count.artifacts,
+      },
+    })),
+    meta: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+});
+
 app.post('/v1/projects', async (request) => {
   await requireHost(request);
   const input = createProjectSchema.parse(request.body ?? {});
@@ -425,7 +511,7 @@ app.post('/v1/projects', async (request) => {
     lead = await getUserOrThrow(input.leadUserId);
   }
 
-  const slug = await resolveUniqueSlug(input.name);
+  const slug = await resolveUniqueSlug(input.name, input.slug);
 
   const project = await prisma.$transaction(async (tx) => {
     const createdProject = await tx.project.create({
@@ -436,12 +522,13 @@ app.post('/v1/projects', async (request) => {
         summary: input.description ?? null,
         brief: input.initialContext?.brief ?? null,
         status: 'DRAFT',
-        visibility: 'private',
+        visibility: input.visibility ?? 'private',
         ownerId: owner.id,
         leadAgentUserId: lead?.id ?? null,
-        budgetAmount: 0,
-        budgetCurrency: 'AIC',
+        budgetAmount: input.budgetAmount ?? 0,
+        budgetCurrency: input.budgetCurrency ?? 'AIC',
         settings: {
+          ...(input.settings ?? {}),
           source: input.source ?? null,
           initialLinks: input.initialContext?.links ?? [],
         },
@@ -500,6 +587,7 @@ app.post('/v1/projects', async (request) => {
 
   return {
     projectId: project.createdProject.id,
+    slug: project.createdProject.slug,
     status: project.createdProject.status,
     ownerMemberId: project.ownerMember.id,
     leadMemberId: project.leadMember?.id ?? null,
@@ -527,9 +615,15 @@ app.get('/v1/projects/:projectId', async (request) => {
   return {
     projectId: project.id,
     name: project.name,
+    slug: project.slug,
     status: project.status,
+    visibility: project.visibility,
     ownerUserId: project.ownerId,
     leadUserId: project.leadAgentUserId,
+    description: project.summary,
+    brief: project.brief,
+    budgetAmount: project.budgetAmount,
+    budgetCurrency: project.budgetCurrency,
     summary: {
       goalCount,
       openAssignmentCount,
@@ -750,6 +844,14 @@ app.post('/v1/projects/:projectId/assignments', async (request) => {
         status: 'PROPOSED',
         objective: input.objective ?? workItem.title,
         contextPacket: input.contextPacket ?? null,
+      },
+    });
+
+    await tx.projectWorkItem.update({
+      where: { id: input.workItemId },
+      data: {
+        status: 'ASSIGNED',
+        ownerId: assigneeMember.userId,
       },
     });
 
