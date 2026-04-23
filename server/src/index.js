@@ -33,6 +33,7 @@ const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(191),
   slug: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().optional(),
+  githubUrl: z.string().trim().url().optional(),
   ownerUserId: z.string().trim().min(1),
   leadUserId: z.string().trim().optional(),
   visibility: z.string().trim().optional(),
@@ -47,6 +48,23 @@ const createProjectSchema = z.object({
     })
     .optional(),
 });
+
+const updateProjectSchema = z
+  .object({
+    name: z.string().trim().min(1).max(191).optional(),
+    description: z.string().trim().nullable().optional(),
+    brief: z.string().trim().nullable().optional(),
+    githubUrl: z.string().trim().url().nullable().optional(),
+    visibility: z.string().trim().optional(),
+    leadUserId: z.string().trim().nullable().optional(),
+    budgetAmount: z.number().nonnegative().optional(),
+    budgetCurrency: z.string().trim().min(1).max(12).nullable().optional(),
+    settings: z.record(z.any()).optional(),
+  })
+  .refine(
+    (input) => Object.keys(input).length > 0,
+    { message: 'At least one project field must be provided' },
+  );
 
 const registerRuntimeSchema = z.object({
   runtimeId: z.string().trim().optional(),
@@ -172,6 +190,15 @@ function slugify(input) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
+}
+
+function getProjectGithubUrl(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return null;
+  }
+
+  const githubUrl = settings.githubUrl;
+  return typeof githubUrl === 'string' && githubUrl.trim() ? githubUrl.trim() : null;
 }
 
 async function resolveUniqueSlug(name, preferredSlug) {
@@ -491,6 +518,7 @@ app.get('/v1/projects', async (request) => {
         workItems: project._count.workItems,
         artifacts: project._count.artifacts,
       },
+      githubUrl: getProjectGithubUrl(project.settings),
     })),
     meta: {
       total,
@@ -529,6 +557,7 @@ app.post('/v1/projects', async (request) => {
         budgetCurrency: input.budgetCurrency ?? 'AIC',
         settings: {
           ...(input.settings ?? {}),
+          githubUrl: input.githubUrl ?? null,
           source: input.source ?? null,
           initialLinks: input.initialContext?.links ?? [],
         },
@@ -595,6 +624,73 @@ app.post('/v1/projects', async (request) => {
   };
 });
 
+app.patch('/v1/projects/:projectId', async (request) => {
+  await requireHost(request);
+  const { projectId } = request.params;
+  const input = updateProjectSchema.parse(request.body ?? {});
+
+  const project = await getProjectOrThrow(projectId);
+
+  let leadUserId = project.leadAgentUserId;
+  if (input.leadUserId !== undefined) {
+    if (input.leadUserId) {
+      const lead = await getUserOrThrow(input.leadUserId);
+      leadUserId = lead.id;
+    } else {
+      leadUserId = null;
+    }
+  }
+
+  const existingSettings =
+    project.settings && typeof project.settings === 'object' && !Array.isArray(project.settings)
+      ? project.settings
+      : {};
+
+  const mergedSettings = {
+    ...existingSettings,
+    ...(input.settings ?? {}),
+  };
+
+  if (input.githubUrl !== undefined) {
+    if (input.githubUrl) {
+      mergedSettings.githubUrl = input.githubUrl;
+    } else {
+      delete mergedSettings.githubUrl;
+    }
+  }
+
+  const updated = await prisma.project.update({
+    where: { id: projectId },
+    data: {
+      name: input.name,
+      summary: input.description,
+      brief: input.brief,
+      visibility: input.visibility,
+      leadAgentUserId: leadUserId,
+      budgetAmount: input.budgetAmount,
+      budgetCurrency: input.budgetCurrency,
+      settings: mergedSettings,
+    },
+  });
+
+  return {
+    projectId: updated.id,
+    name: updated.name,
+    slug: updated.slug,
+    status: updated.status,
+    visibility: updated.visibility,
+    githubUrl: getProjectGithubUrl(mergedSettings),
+    ownerUserId: updated.ownerId,
+    leadUserId: updated.leadAgentUserId,
+    description: updated.summary,
+    brief: updated.brief,
+    budgetAmount: updated.budgetAmount,
+    budgetCurrency: updated.budgetCurrency,
+    createdAt: updated.createdAt,
+    updatedAt: updated.updatedAt,
+  };
+});
+
 app.get('/v1/projects/:projectId', async (request) => {
   const { projectId } = request.params;
   await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_READ_BASIC' });
@@ -618,6 +714,7 @@ app.get('/v1/projects/:projectId', async (request) => {
     slug: project.slug,
     status: project.status,
     visibility: project.visibility,
+    githubUrl: getProjectGithubUrl(settings),
     ownerUserId: project.ownerId,
     leadUserId: project.leadAgentUserId,
     description: project.summary,
