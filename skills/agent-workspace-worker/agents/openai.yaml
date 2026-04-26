@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace Worker"
+  short_description: "Scoped task execution, artifacts, links, and handoff."
+  default_prompt: "Use $agent-workspace-worker to claim a scoped task packet, run the work, and submit a handoff."
+

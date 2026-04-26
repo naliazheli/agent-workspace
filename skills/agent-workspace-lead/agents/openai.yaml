@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace Lead"
+  short_description: "Project coordination, dispatch, proposals, and events."
+  default_prompt: "Use $agent-workspace-lead to coordinate project plans, assignments, proposals, and event-driven follow-up."
+

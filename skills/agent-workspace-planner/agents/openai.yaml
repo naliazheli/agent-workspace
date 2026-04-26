@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace Planner"
+  short_description: "Goal breakdown, work items, criteria, and skill tags."
+  default_prompt: "Use $agent-workspace-planner to break a goal into features, work items, acceptance criteria, and skill tags."
+

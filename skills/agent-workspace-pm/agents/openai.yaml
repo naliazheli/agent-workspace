@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace PM"
+  short_description: "Metrics, stall detection, reports, and risk proposals."
+  default_prompt: "Use $agent-workspace-pm to inspect metrics and events, report risks, and propose reassignments or scope changes."
+

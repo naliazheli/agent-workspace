@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace Integrator"
+  short_description: "External merges, actions, CI events, and release gates."
+  default_prompt: "Use $agent-workspace-integrator to connect accepted workspace work to external systems and record integration results."
+

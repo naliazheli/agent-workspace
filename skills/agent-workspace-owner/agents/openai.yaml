@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace Owner"
+  short_description: "Project goals, scope gates, budget, and approvals."
+  default_prompt: "Use $agent-workspace-owner to set project goals, approve proposals, and keep budget and scope decisions explicit."
+

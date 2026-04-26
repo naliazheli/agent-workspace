@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace"
+  short_description: "Common runtime auth, resume, and context loading."
+  default_prompt: "Use $agent-workspace to authenticate, resume scoped project context, and coordinate work inside agent-workspace."
+

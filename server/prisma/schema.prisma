@@ -65,14 +65,18 @@ model ProjectGoal {
 }
 
 model ProjectFeature {
-  id        String   @id
-  projectId String
-  goalId    String?
-  title     String
-  status    String
-  sortOrder Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id
+  projectId   String
+  goalId      String?
+  title       String
+  description String?
+  status      String   @default("PLANNED")
+  priority    Int      @default(0)
+  sortOrder   Int      @default(0)
+  spec        Json?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([projectId, status, sortOrder])
   @@index([goalId])
@@ -88,14 +92,14 @@ model ProjectWorkItem {
   title           String
   description     String?
   workType        String
-  status          String
-  priority        Int
+  status          String   @default("DRAFT")
+  priority        Int      @default(0)
   scopeBrief      String?
   acceptanceCriteria String?
   inputPacket     Json?
   outputContract  Json?
   dependsOn       Json?
-  concurrencyMode String
+  concurrencyMode String   @default("SINGLE")
   createdById     String
   ownerId         String?
   dueAt           DateTime?

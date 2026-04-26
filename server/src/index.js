@@ -125,6 +125,35 @@ const createAssignmentSchema = z.object({
   contextPacket: z.record(z.any()).optional(),
 });
 
+const createFeatureSchema = z.object({
+  goalId: z.string().trim().optional(),
+  title: z.string().trim().min(1).max(191),
+  description: z.string().trim().optional(),
+  priority: z.number().int().optional(),
+  sortOrder: z.number().int().optional(),
+  spec: z.record(z.any()).optional(),
+  createdByUserId: z.string().trim().optional(),
+});
+
+const createWorkItemSchema = z.object({
+  goalId: z.string().trim().optional(),
+  featureId: z.string().trim().optional(),
+  parentWorkItemId: z.string().trim().optional(),
+  title: z.string().trim().min(1).max(191),
+  description: z.string().trim().optional(),
+  workType: z.string().trim().min(1).max(50).default('PLANNING'),
+  scopeBrief: z.string().trim().optional(),
+  acceptanceCriteria: z.string().trim().optional(),
+  inputPacket: z.record(z.any()).optional(),
+  outputContract: z.record(z.any()).optional(),
+  dependsOn: z.array(z.string()).optional(),
+  concurrencyMode: z.enum(['SINGLE', 'RACE', 'MULTI_ROLE', 'PRIMARY_BACKUP']).optional(),
+  priority: z.number().int().optional(),
+  ownerId: z.string().trim().optional(),
+  dueAt: z.string().datetime().optional(),
+  createdByUserId: z.string().trim().optional(),
+});
+
 const createProposalSchema = z.object({
   type: z.string().trim().min(1),
   title: z.string().trim().optional(),
@@ -350,6 +379,34 @@ async function getProjectMemberOrThrow(projectId, memberId) {
   return member;
 }
 
+async function actorUserIdFromAuth(projectId, auth, explicitUserId) {
+  if (auth.type === 'runtime') {
+    const member = await getProjectMemberOrThrow(projectId, auth.token.memberId);
+    return member.userId;
+  }
+  if (explicitUserId) {
+    const user = await getUserOrThrow(explicitUserId);
+    return user.id;
+  }
+  const project = await getProjectOrThrow(projectId);
+  return project.ownerId;
+}
+
+async function ensureProjectReference(projectId, type, id) {
+  if (!id) return;
+  const modelByType = {
+    goal: prisma.projectGoal,
+    feature: prisma.projectFeature,
+    workItem: prisma.projectWorkItem,
+  };
+  const model = modelByType[type];
+  if (!model) return;
+  const found = await model.findFirst({ where: { id, projectId }, select: { id: true } });
+  if (!found) {
+    throw badRequest(`${type} not found in project`);
+  }
+}
+
 async function getThreadForWrite(projectId, input, createdByMemberId = null) {
   if (input.threadId) {
     const existingThread = await prisma.projectThread.findFirst({
@@ -422,6 +479,21 @@ function mapPresence(status) {
   if (['SLEEPING', 'PAUSED'].includes(normalized)) return 'SLEEPING';
   if (['UNREACHABLE'].includes(normalized)) return 'UNREACHABLE';
   return 'ACTIVE';
+}
+
+function runtimeMetadataFromAuth(auth) {
+  if (!auth || auth.type !== 'runtime') {
+    return null;
+  }
+
+  return {
+    source: 'agent-runtime',
+    runtimeId: auth.token.runtimeId,
+    memberId: auth.token.memberId,
+    grantId: auth.token.grantId,
+    scopes: auth.token.scopes,
+    stampedAt: new Date().toISOString(),
+  };
 }
 
 app.setErrorHandler((error, _request, reply) => {
@@ -902,6 +974,118 @@ app.get('/v1/projects/:projectId/members', async (request) => {
       joinedAt: member.joinedAt,
     };
   });
+});
+
+app.post('/v1/projects/:projectId/features', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'FEATURE_CREATE' });
+  const input = createFeatureSchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+  await ensureProjectReference(projectId, 'goal', input.goalId);
+  const actorUserId = await actorUserIdFromAuth(projectId, auth, input.createdByUserId);
+  const runtimeMetadata = runtimeMetadataFromAuth(auth);
+
+  const feature = await prisma.$transaction(async (tx) => {
+    const created = await tx.projectFeature.create({
+      data: {
+        id: randomUUID(),
+        projectId,
+        goalId: input.goalId ?? null,
+        title: input.title,
+        description: input.description ?? null,
+        status: 'PLANNED',
+        priority: input.priority ?? 0,
+        sortOrder: input.sortOrder ?? 0,
+        spec: runtimeMetadata
+          ? {
+              ...(input.spec ?? {}),
+              source: input.spec?.source ?? 'agent-runtime',
+              agentRuntime: runtimeMetadata,
+            }
+          : input.spec ?? undefined,
+        createdById: actorUserId,
+      },
+    });
+
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'FEATURE_CREATED',
+      refType: 'FEATURE',
+      refId: created.id,
+      actorUserId,
+      payload: {
+        title: created.title,
+        goalId: created.goalId,
+        createdBy: runtimeMetadata ? 'agent-runtime' : 'host',
+      },
+    });
+
+    return created;
+  });
+
+  return { featureId: feature.id, feature };
+});
+
+app.post('/v1/projects/:projectId/work-items', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'WORK_ITEM_CREATE' });
+  const input = createWorkItemSchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+  await ensureProjectReference(projectId, 'goal', input.goalId);
+  await ensureProjectReference(projectId, 'feature', input.featureId);
+  await ensureProjectReference(projectId, 'workItem', input.parentWorkItemId);
+  const actorUserId = await actorUserIdFromAuth(projectId, auth, input.createdByUserId);
+  const runtimeMetadata = runtimeMetadataFromAuth(auth);
+
+  const workItem = await prisma.$transaction(async (tx) => {
+    const created = await tx.projectWorkItem.create({
+      data: {
+        id: randomUUID(),
+        projectId,
+        goalId: input.goalId ?? null,
+        featureId: input.featureId ?? null,
+        parentWorkItemId: input.parentWorkItemId ?? null,
+        title: input.title,
+        description: input.description ?? null,
+        workType: input.workType,
+        status: 'DRAFT',
+        scopeBrief: input.scopeBrief ?? null,
+        acceptanceCriteria: input.acceptanceCriteria ?? null,
+        inputPacket: runtimeMetadata
+          ? {
+              ...(input.inputPacket ?? {}),
+              source: input.inputPacket?.source ?? 'agent-runtime',
+              agentRuntime: runtimeMetadata,
+            }
+          : input.inputPacket ?? undefined,
+        outputContract: input.outputContract ?? undefined,
+        dependsOn: input.dependsOn ?? [],
+        concurrencyMode: input.concurrencyMode ?? 'SINGLE',
+        priority: input.priority ?? 0,
+        createdById: actorUserId,
+        ownerId: input.ownerId ?? null,
+        dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      },
+    });
+
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'WORK_ITEM_CREATED',
+      refType: 'WORK_ITEM',
+      refId: created.id,
+      actorUserId,
+      payload: {
+        title: created.title,
+        featureId: created.featureId,
+        workType: created.workType,
+        createdBy: runtimeMetadata ? 'agent-runtime' : 'host',
+      },
+    });
+
+    return created;
+  });
+
+  return { workItemId: workItem.id, workItem };
 });
 
 app.post('/v1/projects/:projectId/assignments', async (request) => {

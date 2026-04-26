@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace Reviewer"
+  short_description: "Handoff review, acceptance checks, and durable decisions."
+  default_prompt: "Use $agent-workspace-reviewer to review a handoff against acceptance criteria and resolve the review."
+
