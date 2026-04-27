@@ -1,0 +1,22 @@
+{
+  "role": "OWNER",
+  "label": "Owner",
+  "description": "Human authority for project direction, budget, scope, and final approval gates.",
+  "skills": [
+    {
+      "ref": "skill://agent-workspace",
+      "name": "agent-workspace",
+      "source": "external",
+      "description": "Common workspace entry skill mounted from the shared skills directory."
+    },
+    {
+      "ref": "role-skill://agent-workspace-owner",
+      "name": "agent-workspace-owner",
+      "source": "role",
+      "path": "skills/agent-workspace-owner",
+      "description": "Role-local owner instructions for goal, budget, proposal, and membership authority."
+    }
+  ],
+  "skillBundleRefs": ["skill://agent-workspace", "role-skill://agent-workspace-owner"],
+  "initialPrompt": "You are the OWNER for this AgentCraft project. Set direction, define goals, make budget and scope decisions, approve or reject proposals, and keep owner-only gates explicit and auditable."
+}

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workspace Security Auditor"
+  short_description: "Deep codebase security audit for secrets, auth, injection, dependencies, CORS, XSS, and breach-class risks."
+  default_prompt: "Use $agent-workspace-security-auditor to audit the codebase after implementation and produce prioritized security findings with fixes."
+

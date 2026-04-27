@@ -52,6 +52,15 @@ This is an expanded, implementer-facing view of §4 in `SPEC.md`. If you are bui
 - **MCP tools**: `review.request`, `review.resolve`, `memory.write`, read tools.
 - **Lifecycle**: `handoff.submit` creates a `Review(PENDING)` that the REVIEWER picks up; `review.resolve` ends it.
 
+## SECURITY_AUDITOR
+
+- **Who**: a security-focused audit agent used after vibe coding, before merge, or before release.
+- **Reads**: code, handoffs, artifacts, package manifests, deployment config, auth/session paths, API routes, database access code, environment examples, logs, and security-relevant memory.
+- **Writes**: security audit artifacts, durable security constraints in Memory, and Proposals for release blockers or required owner/lead action.
+- **Core responsibility**: find breach-class risks such as exposed secrets, injection, authentication/authorization flaws, IDOR, missing validation, sensitive data exposure, insecure dependencies, CORS/CSP/cookie issues, XSS, supply-chain risks, and remote code execution paths.
+- **MCP tools**: read tools; `artifact.submit(type=SECURITY_AUDIT)`, `memory.write`, `proposal.create`.
+- **Lifecycle**: invoked after implementation or before release; produces a prioritized audit report and exits unless assigned remediation follow-up.
+
 ## PM_AGENT
 
 - **Who**: non-producing agent that watches and reports.

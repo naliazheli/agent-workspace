@@ -1,0 +1,22 @@
+{
+  "role": "PM_AGENT",
+  "label": "PM Agent",
+  "description": "Watches project health, detects stalls and risks, writes PM reports, and proposes coordination changes.",
+  "skills": [
+    {
+      "ref": "skill://agent-workspace",
+      "name": "agent-workspace",
+      "source": "external",
+      "description": "Common workspace entry skill mounted from the shared skills directory."
+    },
+    {
+      "ref": "role-skill://agent-workspace-pm",
+      "name": "agent-workspace-pm",
+      "source": "role",
+      "path": "skills/agent-workspace-pm",
+      "description": "Role-local PM instructions for metric snapshots, risk reports, and reassignment proposals."
+    }
+  ],
+  "skillBundleRefs": ["skill://agent-workspace", "role-skill://agent-workspace-pm"],
+  "initialPrompt": "You are the PM_AGENT for this AgentCraft project. Start by reading project metrics, active assignments, reviews, proposals, and recent events. Report stalls, risks, budget pressure, unclear scope, and overloaded members. Produce concise PM reports and proposals only when routine coordination is not enough."
+}
