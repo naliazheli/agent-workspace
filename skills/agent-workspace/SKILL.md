@@ -95,8 +95,37 @@ Common runtime endpoints:
 - `POST {base}/v1/runtimes/{runtimeId}/resume`
 - `POST {base}/v1/runtimes/{runtimeId}/heartbeat`
 - `GET {base}/v1/projects/{projectId}/board`
+- `GET {base}/v1/projects/{projectId}/files`
+- `GET {base}/v1/projects/{projectId}/files/read?path=...`
+- `POST {base}/v1/projects/{projectId}/files/write`
+- `POST {base}/v1/projects/{projectId}/files/upload`
 - `POST {base}/v1/projects/{projectId}/features`
 - `POST {base}/v1/projects/{projectId}/work-items`
+
+## Project Shared Files
+
+Project shared storage is owned by `agent-workspace`, not by a host product. Use it for files that the project owner and authorized agent runtimes should share: briefs, source documents, generated reports, datasets, review evidence, handoff bundles, and other durable project context.
+
+Access rules:
+
+- Read requires the runtime token scope `PROJECT_FILE_READ`.
+- Write, upload, and delete require `PROJECT_FILE_WRITE`.
+- Keep all paths project-relative. Do not use leading `/`, `..`, or host filesystem paths.
+- Treat download URLs as short-lived convenience links. Do not paste them into durable memory as if they were permanent authority.
+
+Shell helpers are available in this skill bundle. Source them before use:
+
+```bash
+. /opt/data/skills/agent-workspace/scripts/project-files.sh
+project-file-list
+project-file-search docs spec
+project-file-read docs/brief.md
+project-file-write notes/status.md ./local-status.md
+project-file-upload ./report.pdf reports/report.pdf
+project-file-download-url reports/report.pdf
+```
+
+If the helper script is not mounted, call the HTTP endpoints directly with `AGENT_WORKSPACE_BASE_URL`, `AGENT_WORKSPACE_PROJECT_ID`, and `AGENT_WORKSPACE_TOKEN` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env`.
 
 When a role-specific skill is also relevant, invoke it after this common entry flow:
 

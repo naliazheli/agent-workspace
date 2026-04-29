@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
+import multipart from '@fastify/multipart';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { TosClient, TosServerError } from '@volcengine/tos-sdk';
 import { z } from 'zod';
 
 const envSchema = z.object({
@@ -13,11 +15,31 @@ const envSchema = z.object({
   AGENT_WORKSPACE_INTEGRATION_KEY: z.string().optional(),
   AGENT_WORKSPACE_JWT_SECRET: z.string().min(1),
   AGENT_WORKSPACE_TOKEN_TTL_SECONDS: z.coerce.number().default(3600),
+  PROJECT_STORAGE_ACCESS_KEY: z.string().optional(),
+  PROJECT_STORAGE_SECRET_KEY: z.string().optional(),
+  PROJECT_STORAGE_REGION: z.string().optional(),
+  PROJECT_STORAGE_ENDPOINT: z.string().optional(),
+  PROJECT_STORAGE_BUCKET: z.string().optional(),
+  PROJECT_STORAGE_FOLDER: z.string().optional(),
+  PROJECT_STORAGE_PUBLIC_URL: z.string().optional(),
+  TOS_ACCESS_KEY: z.string().optional(),
+  TOS_SECRET_KEY: z.string().optional(),
+  TOS_REGION: z.string().optional(),
+  TOS_ENDPOINT: z.string().optional(),
+  TOS_BUCKET: z.string().optional(),
+  TOS_FOLDER: z.string().optional(),
+  TOS_PUBLIC_URL: z.string().optional(),
 });
 
 const env = envSchema.parse(process.env);
 const prisma = new PrismaClient();
 const app = Fastify({ logger: true });
+await app.register(multipart, {
+  limits: {
+    fileSize: 100 * 1024 * 1024,
+    files: 1,
+  },
+});
 
 const runtimeTokenSchema = z.object({
   projectId: z.string(),
@@ -96,6 +118,26 @@ const heartbeatSchema = z.object({
   status: z.string().trim().min(1),
   assignmentId: z.string().trim().optional(),
   message: z.string().trim().optional(),
+});
+
+const projectFileListQuerySchema = z.object({
+  prefix: z.string().optional(),
+  q: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  cursor: z.string().optional(),
+});
+
+const projectFilePathQuerySchema = z.object({
+  path: z.string().trim().min(1),
+  encoding: z.enum(['text', 'base64']).optional(),
+  expiresIn: z.coerce.number().int().min(60).max(86400).default(3600),
+});
+
+const projectFileWriteSchema = z.object({
+  path: z.string().trim().min(1),
+  content: z.string().default(''),
+  encoding: z.enum(['text', 'base64']).default('text'),
+  contentType: z.string().trim().optional(),
 });
 
 const createMessageSchema = z.object({
@@ -228,6 +270,106 @@ function getProjectGithubUrl(settings) {
 
   const githubUrl = settings.githubUrl;
   return typeof githubUrl === 'string' && githubUrl.trim() ? githubUrl.trim() : null;
+}
+
+function storageConfig() {
+  return {
+    accessKeyId: env.PROJECT_STORAGE_ACCESS_KEY || env.TOS_ACCESS_KEY,
+    accessKeySecret: env.PROJECT_STORAGE_SECRET_KEY || env.TOS_SECRET_KEY,
+    region: env.PROJECT_STORAGE_REGION || env.TOS_REGION || 'cn-beijing',
+    endpoint: env.PROJECT_STORAGE_ENDPOINT || env.TOS_ENDPOINT,
+    bucket: env.PROJECT_STORAGE_BUCKET || env.TOS_BUCKET,
+    folder: env.PROJECT_STORAGE_FOLDER || env.TOS_FOLDER || '',
+    publicUrl: env.PROJECT_STORAGE_PUBLIC_URL || env.TOS_PUBLIC_URL,
+  };
+}
+
+let projectStorageClient;
+function getProjectStorageClient() {
+  const config = storageConfig();
+  if (!config.accessKeyId || !config.accessKeySecret || !config.bucket) {
+    throw badRequest('Project storage is not configured');
+  }
+  if (!projectStorageClient) {
+    projectStorageClient = new TosClient({
+      accessKeyId: config.accessKeyId,
+      accessKeySecret: config.accessKeySecret,
+      region: config.region,
+      endpoint: config.endpoint,
+      maxRetryCount: 3,
+    });
+  }
+  return projectStorageClient;
+}
+
+function normalizeProjectFilePath(input, { allowEmpty = false } = {}) {
+  const raw = String(input || '').replace(/\\/g, '/').trim();
+  if (!raw) {
+    if (allowEmpty) return '';
+    throw badRequest('File path is required');
+  }
+  const parts = [];
+  for (const part of raw.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      throw badRequest('File path must stay inside project storage');
+    }
+    parts.push(part);
+  }
+  const normalized = parts.join('/');
+  if (!normalized && !allowEmpty) {
+    throw badRequest('File path is required');
+  }
+  return normalized;
+}
+
+function projectStoragePrefix(projectId) {
+  const config = storageConfig();
+  const folder = normalizeProjectFilePath(config.folder, { allowEmpty: true });
+  return [folder, 'projects', projectId, 'shared'].filter(Boolean).join('/') + '/';
+}
+
+function projectStorageKey(projectId, filePath) {
+  return `${projectStoragePrefix(projectId)}${normalizeProjectFilePath(filePath)}`;
+}
+
+function projectFilePathFromKey(projectId, key) {
+  const prefix = projectStoragePrefix(projectId);
+  return key.startsWith(prefix) ? key.slice(prefix.length) : key;
+}
+
+function normalizeUploadPath(inputPath, originalName) {
+  const fallback = normalizeProjectFilePath(originalName || 'upload.bin').split('/').pop() || 'upload.bin';
+  const raw = String(inputPath || '').trim();
+  if (!raw) return fallback;
+  return normalizeProjectFilePath(raw.endsWith('/') ? `${raw}${fallback}` : raw);
+}
+
+function isProbablyText(contentType, filePath) {
+  const type = String(contentType || '').toLowerCase();
+  if (type.startsWith('text/') || type.includes('json') || type.includes('xml') || type.includes('yaml')) {
+    return true;
+  }
+  return /\.(txt|md|json|ya?ml|csv|tsv|log|xml|html|css|js|jsx|ts|tsx|py|java|go|rs|sql|sh|env)$/i.test(filePath || '');
+}
+
+async function bodyToBuffer(body) {
+  if (!body) return Buffer.alloc(0);
+  if (Buffer.isBuffer(body)) return body;
+  if (body instanceof Uint8Array) return Buffer.from(body);
+  if (typeof body.transformToByteArray === 'function') {
+    return Buffer.from(await body.transformToByteArray());
+  }
+  const chunks = [];
+  for await (const chunk of body) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function projectFileDownloadUrlFromPublicBase(key) {
+  const config = storageConfig();
+  return config.publicUrl ? `${config.publicUrl.replace(/\/+$/, '')}/${key}` : null;
 }
 
 async function resolveUniqueSlug(name, preferredSlug) {
@@ -497,10 +639,12 @@ function runtimeMetadataFromAuth(auth) {
 }
 
 app.setErrorHandler((error, _request, reply) => {
-  const statusCode = error.statusCode || 500;
+  const statusCode = error.statusCode || (error instanceof TosServerError ? error.statusCode : undefined) || 500;
   reply.status(statusCode).send({
     error: {
       message: error.message,
+      code: error instanceof TosServerError ? error.code : undefined,
+      requestId: error instanceof TosServerError ? error.requestId : undefined,
       statusCode,
     },
   });
@@ -1431,6 +1575,213 @@ app.post('/v1/runtimes/:runtimeId/heartbeat', async (request) => {
     accepted: true,
     recordedAt: now.toISOString(),
   };
+});
+
+app.get('/v1/projects/:projectId/files', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_READ' });
+  const query = projectFileListQuerySchema.parse(request.query ?? {});
+  await getProjectOrThrow(projectId);
+
+  const prefix = `${projectStoragePrefix(projectId)}${normalizeProjectFilePath(query.prefix, { allowEmpty: true })}`;
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  const listInput = {
+    bucket: config.bucket,
+    prefix,
+    maxKeys: query.limit,
+    listOnlyOnce: true,
+  };
+  if (query.cursor) {
+    listInput.continuationToken = query.cursor;
+  }
+  const { data: output } = await client.listObjectsType2({
+    ...listInput,
+  });
+  const q = (query.q || '').trim().toLowerCase();
+  const files = (output.Contents || [])
+    .map((item) => ({
+      path: projectFilePathFromKey(projectId, item.Key || ''),
+      key: item.Key,
+      size: Number(item.Size || 0),
+      lastModified: item.LastModified,
+      etag: item.ETag,
+      downloadUrl: projectFileDownloadUrlFromPublicBase(item.Key || ''),
+    }))
+    .filter((item) => item.key && (!q || item.path.toLowerCase().includes(q)));
+
+  return {
+    projectId,
+    authType: auth.type,
+    files,
+    nextCursor: output.NextContinuationToken,
+    isTruncated: Boolean(output.IsTruncated),
+  };
+});
+
+app.get('/v1/projects/:projectId/files/read', async (request) => {
+  const { projectId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_READ' });
+  const query = projectFilePathQuerySchema.parse(request.query ?? {});
+  await getProjectOrThrow(projectId);
+
+  const key = projectStorageKey(projectId, query.path);
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  const [{ data: head }, { data: object }] = await Promise.all([
+    client.headObject({ bucket: config.bucket, key }),
+    client.getObjectV2({ bucket: config.bucket, key }),
+  ]);
+  const buffer = await bodyToBuffer(object.content);
+  const contentType = head['content-type'] || 'application/octet-stream';
+  const encoding = query.encoding || (isProbablyText(contentType, query.path) ? 'text' : 'base64');
+
+  return {
+    projectId,
+    path: normalizeProjectFilePath(query.path),
+    key,
+    size: Number(head['content-length'] || buffer.length),
+    contentType,
+    lastModified: head['last-modified'],
+    encoding,
+    content: encoding === 'base64' ? buffer.toString('base64') : buffer.toString('utf8'),
+  };
+});
+
+app.get('/v1/projects/:projectId/files/download-url', async (request) => {
+  const { projectId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_READ' });
+  const query = projectFilePathQuerySchema.parse(request.query ?? {});
+  await getProjectOrThrow(projectId);
+
+  const key = projectStorageKey(projectId, query.path);
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  await client.headObject({ bucket: config.bucket, key });
+  const url = client.getPreSignedUrl({
+    method: 'GET',
+    bucket: config.bucket,
+    key,
+    expires: query.expiresIn,
+  });
+
+  return {
+    projectId,
+    path: normalizeProjectFilePath(query.path),
+    key,
+    url,
+    expiresIn: query.expiresIn,
+  };
+});
+
+app.post('/v1/projects/:projectId/files/write', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_WRITE' });
+  const input = projectFileWriteSchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+
+  const key = projectStorageKey(projectId, input.path);
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  const body = input.encoding === 'base64' ? Buffer.from(input.content, 'base64') : Buffer.from(input.content, 'utf8');
+  const contentType = input.contentType || (input.encoding === 'base64' ? 'application/octet-stream' : 'text/plain; charset=utf-8');
+  await client.putObject({
+    bucket: config.bucket,
+    key,
+    body,
+    contentType,
+  });
+
+  const actorUserId = await actorUserIdFromAuth(projectId, auth);
+  await prisma.$transaction(async (tx) => {
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'PROJECT_FILE_WRITTEN',
+      refType: 'PROJECT_FILE',
+      refId: normalizeProjectFilePath(input.path),
+      actorUserId,
+      payload: { path: normalizeProjectFilePath(input.path), key, size: body.length, contentType },
+    });
+  });
+
+  return {
+    projectId,
+    path: normalizeProjectFilePath(input.path),
+    key,
+    size: body.length,
+    contentType,
+  };
+});
+
+app.post('/v1/projects/:projectId/files/upload', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_WRITE' });
+  await getProjectOrThrow(projectId);
+
+  const part = await request.file();
+  if (!part) {
+    throw badRequest('No file provided');
+  }
+  const fieldPath = part.fields?.path?.value;
+  const filePath = normalizeUploadPath(typeof fieldPath === 'string' ? fieldPath : undefined, part.filename);
+  const body = await part.toBuffer();
+  const key = projectStorageKey(projectId, filePath);
+  const contentType = part.mimetype || 'application/octet-stream';
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  await client.putObject({
+    bucket: config.bucket,
+    key,
+    body,
+    contentType,
+  });
+
+  const actorUserId = await actorUserIdFromAuth(projectId, auth);
+  await prisma.$transaction(async (tx) => {
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'PROJECT_FILE_UPLOADED',
+      refType: 'PROJECT_FILE',
+      refId: filePath,
+      actorUserId,
+      payload: { path: filePath, key, size: body.length, contentType },
+    });
+  });
+
+  return {
+    projectId,
+    path: filePath,
+    key,
+    size: body.length,
+    contentType,
+  };
+});
+
+app.delete('/v1/projects/:projectId/files', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_WRITE' });
+  const query = projectFilePathQuerySchema.parse(request.query ?? {});
+  await getProjectOrThrow(projectId);
+
+  const path = normalizeProjectFilePath(query.path);
+  const key = projectStorageKey(projectId, path);
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  await client.deleteObject({ bucket: config.bucket, key });
+
+  const actorUserId = await actorUserIdFromAuth(projectId, auth);
+  await prisma.$transaction(async (tx) => {
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'PROJECT_FILE_DELETED',
+      refType: 'PROJECT_FILE',
+      refId: path,
+      actorUserId,
+      payload: { path, key },
+    });
+  });
+
+  return { projectId, path, key, deleted: true };
 });
 
 app.get('/v1/projects/:projectId/inbox', async (request) => {
