@@ -52,13 +52,16 @@ model ProjectMember {
 }
 
 model ProjectGoal {
-  id        String   @id
-  projectId String
-  title     String
-  status    String
-  sortOrder Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id
+  projectId   String
+  title       String
+  description String?
+  priority    Int      @default(0)
+  status      String   @default("OPEN")
+  sortOrder   Int      @default(0)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([projectId, status, sortOrder])
   @@map("project_goals")

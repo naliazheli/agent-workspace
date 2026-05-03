@@ -25,6 +25,8 @@ Use this as the common entry skill for every `agent-workspace` runtime. It defin
 4. Resume the project.
    - Call the resume entrypoint with the runtime token.
    - Read inbox items first, then active assignments, task packets, linked threads/messages, and role-visible summaries.
+   - If the resume response includes `boardSnapshot`, treat its goals, features, and work items as the current project state.
+   - If `boardSnapshot` is missing or appears incomplete for the role, call `GET /v1/projects/{projectId}/board` before saying that no goals or work exist.
    - Advance cursors from the returned `lastSeq` or equivalent resume cursor.
 5. Heartbeat while working.
    - Send presence updates during long work.
@@ -55,6 +57,7 @@ Load context in this order:
 5. Event stream: project-wide events only for roles that have project-wide read permission.
 
 Do not load the full project by default. A worker should use `taskPacket.get`; a reviewer should load the handoff, criteria, and relevant memory; a PM or lead may load broader events and metrics.
+Do not infer that the project has no goals from an empty inbox or empty assignments. Use `boardSnapshot.goalSummaries` from resume, or fetch the board directly, before reporting goal state.
 
 ## Authorization Rules
 

@@ -66,6 +66,12 @@ const createProjectSchema = z.object({
   initialContext: z
     .object({
       brief: z.string().optional(),
+      goal: z
+        .object({
+          title: z.string().trim().min(1).max(191),
+          description: z.string().trim().optional(),
+        })
+        .optional(),
       links: z.array(z.any()).optional(),
     })
     .optional(),
@@ -803,6 +809,23 @@ app.post('/v1/projects', async (request) => {
       leadMember = ownerMember;
     }
 
+    let initialGoal = null;
+    const initialGoalInput = input.initialContext?.goal;
+    if (initialGoalInput?.title) {
+      initialGoal = await tx.projectGoal.create({
+        data: {
+          id: randomUUID(),
+          projectId: createdProject.id,
+          title: initialGoalInput.title,
+          description: initialGoalInput.description ?? input.initialContext?.brief ?? null,
+          priority: 0,
+          status: 'OPEN',
+          sortOrder: 0,
+          createdById: owner.id,
+        },
+      });
+    }
+
     await tx.project.update({
       where: { id: createdProject.id },
       data: {
@@ -827,7 +850,21 @@ app.post('/v1/projects', async (request) => {
       },
     });
 
-    return { createdProject, ownerMember, leadMember };
+    if (initialGoal) {
+      await appendProjectEvent(tx, {
+        projectId: createdProject.id,
+        type: 'GOAL_CREATED',
+        refType: 'GOAL',
+        refId: initialGoal.id,
+        actorUserId: owner.id,
+        payload: {
+          title: initialGoal.title,
+          source: 'initialContext',
+        },
+      });
+    }
+
+    return { createdProject, ownerMember, leadMember, initialGoal };
   });
 
   return {
@@ -836,6 +873,7 @@ app.post('/v1/projects', async (request) => {
     status: project.createdProject.status,
     ownerMemberId: project.ownerMember.id,
     leadMemberId: project.leadMember?.id ?? null,
+    initialGoalId: project.initialGoal?.id ?? null,
     createdAt: project.createdProject.createdAt,
   };
 });
@@ -957,7 +995,7 @@ app.get('/v1/projects/:projectId/board', async (request) => {
     prisma.projectMember.count({ where: { projectId, removedAt: null } }),
     prisma.projectGoal.findMany({
       where: { projectId },
-      select: { id: true, title: true, status: true, sortOrder: true },
+      select: { id: true, title: true, description: true, priority: true, status: true, sortOrder: true },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     }),
     prisma.projectWorkItem.findMany({
@@ -1484,7 +1522,7 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
     data: { status: 'ACTIVE', lastSeenAt: new Date() },
   });
 
-  const [activeInbox, assignmentRows, eventMax] = await Promise.all([
+  const [activeInbox, assignmentRows, eventMax, project, goals, features, workItems] = await Promise.all([
     prisma.projectInboxItem.findMany({
       where: {
         projectId: input.projectId,
@@ -1510,6 +1548,38 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
       where: { projectId: input.projectId },
       _max: { seq: true },
     }),
+    prisma.project.findUnique({
+      where: { id: input.projectId },
+      select: { id: true, name: true, summary: true, brief: true, status: true, visibility: true },
+    }),
+    prisma.projectGoal.findMany({
+      where: { projectId: input.projectId },
+      select: { id: true, title: true, description: true, priority: true, status: true, sortOrder: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      take: 25,
+    }),
+    prisma.projectFeature.findMany({
+      where: { projectId: input.projectId },
+      select: { id: true, goalId: true, title: true, description: true, status: true, priority: true, sortOrder: true },
+      orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      take: 25,
+    }),
+    prisma.projectWorkItem.findMany({
+      where: { projectId: input.projectId },
+      select: {
+        id: true,
+        goalId: true,
+        featureId: true,
+        title: true,
+        description: true,
+        workType: true,
+        status: true,
+        priority: true,
+        ownerId: true,
+      },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      take: 25,
+    }),
   ]);
 
   const threadIds = [...new Set(activeInbox.map((item) => item.threadId).filter(Boolean))];
@@ -1523,6 +1593,12 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
     projectId: input.projectId,
     runtimeId,
     memberId: auth.token.memberId,
+    project,
+    boardSnapshot: {
+      goalSummaries: goals,
+      featureSummaries: features,
+      workItemSummaries: workItems,
+    },
     activeInbox,
     assignmentSummaries: assignmentRows,
     threadSummaries,
