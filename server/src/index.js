@@ -160,7 +160,7 @@ const createMessageSchema = z.object({
 const createAssignmentSchema = z.object({
   workItemId: z.string().trim().min(1),
   assigneeMemberId: z.string().trim().min(1),
-  assignedByUserId: z.string().trim().min(1),
+  assignedByUserId: z.string().trim().optional(),
   targetRuntimeId: z.string().trim().optional(),
   role: z.string().trim().default('WORKER'),
   objective: z.string().trim().optional(),
@@ -1175,9 +1175,16 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'WORK_ITEM_CREATE' });
   const input = createWorkItemSchema.parse(request.body ?? {});
   await getProjectOrThrow(projectId);
-  await ensureProjectReference(projectId, 'goal', input.goalId);
   await ensureProjectReference(projectId, 'feature', input.featureId);
   await ensureProjectReference(projectId, 'workItem', input.parentWorkItemId);
+  const linkedFeature = input.featureId
+    ? await prisma.projectFeature.findFirst({
+        where: { id: input.featureId, projectId },
+        select: { goalId: true },
+      })
+    : null;
+  const goalId = input.goalId ?? linkedFeature?.goalId ?? null;
+  await ensureProjectReference(projectId, 'goal', goalId);
   const actorUserId = await actorUserIdFromAuth(projectId, auth, input.createdByUserId);
   const runtimeMetadata = runtimeMetadataFromAuth(auth);
 
@@ -1186,7 +1193,7 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
       data: {
         id: randomUUID(),
         projectId,
-        goalId: input.goalId ?? null,
+        goalId,
         featureId: input.featureId ?? null,
         parentWorkItemId: input.parentWorkItemId ?? null,
         title: input.title,
@@ -1233,15 +1240,17 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
 });
 
 app.post('/v1/projects/:projectId/assignments', async (request) => {
-  await requireHost(request);
   const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'ASSIGNMENT_DISPATCH' });
   const input = createAssignmentSchema.parse(request.body ?? {});
   await getProjectOrThrow(projectId);
+  const assignedByUserId = await actorUserIdFromAuth(projectId, auth, input.assignedByUserId);
 
   const [assigneeMember, assignedByUser] = await Promise.all([
     getProjectMemberOrThrow(projectId, input.assigneeMemberId),
-    getUserOrThrow(input.assignedByUserId),
+    getUserOrThrow(assignedByUserId),
   ]);
+  const sourceMemberId = auth.type === 'runtime' ? auth.token.memberId : null;
 
   const workItem = await prisma.projectWorkItem.findFirst({
     where: { id: input.workItemId, projectId },
@@ -1284,7 +1293,7 @@ app.post('/v1/projects/:projectId/assignments', async (request) => {
       projectId,
       targetMemberId: assigneeMember.id,
       targetRuntimeId: input.targetRuntimeId ?? null,
-      sourceMemberId: null,
+      sourceMemberId,
       kind: 'ASSIGNMENT_DISPATCH',
       ownerActionType: 'CLAIM_ASSIGNMENT',
       priority: 'HIGH',

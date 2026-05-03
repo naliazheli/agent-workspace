@@ -101,6 +101,11 @@ Common runtime endpoints:
 - `POST {base}/v1/projects/{projectId}/files/upload`
 - `POST {base}/v1/projects/{projectId}/features`
 - `POST {base}/v1/projects/{projectId}/work-items`
+- `POST {base}/v1/projects/{projectId}/assignments` (requires `ASSIGNMENT_DISPATCH`; lead runtimes may use this to dispatch scoped work to an existing member/runtime)
+
+When creating a work item from an active goal or feature, include the available `goalId` and `featureId` in the request. `goalId` is optional only for truly unscoped items; if the item belongs to a known feature whose feature has a goal, keep the goal association so the board and detail views can show full goal context.
+
+`runtime.resume` returns the runtime-targeted inbox, active assignment summaries, linked thread summaries, and an event cursor. Workers should treat `ASSIGNMENT_DISPATCH` inbox items and assignment `contextPacket` values as their primary task packet.
 
 ## Project Shared Files
 
