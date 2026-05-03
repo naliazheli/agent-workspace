@@ -24,10 +24,12 @@ Use `$agent-workspace` first. Workers should not read the full project unless th
 3. If no actionable assignment exists, inspect the project board/work items and assignment summaries for idle work discovery.
 4. Select at most one eligible item, preferring `READY` items before `DRAFT` items. Use `DRAFT` only when scope, acceptance criteria, and dependencies are clear enough to execute safely.
 5. Load the task packet or item detail and verify objective, acceptance criteria, output contract, dependencies, and allowed files/systems.
-6. If the packet or item contains `projectFiles` or `workItem.inputPacket.projectFiles`, read those files before analysis or edits.
-7. Start a run, execute the task, and log meaningful progress or blockers.
-8. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
-9. Submit `handoff.submit` with what changed, how it was verified, residual risks, and reviewer instructions.
+6. Source `/opt/data/AGENT_WORKSPACE_RUNTIME.env` before shell/API work and check for required project globals. External credentials and resources are exposed as `PROJECT_GLOBAL_<KEY>` plus common aliases such as `GITHUB_TOKEN`; do not read or request secret values from chat.
+7. If a required credential/resource is missing, stop that execution path and report the exact missing project global key as a blocker for the lead/owner. Do not fabricate credentials or attempt the external action anyway.
+8. If the packet or item contains `projectFiles` or `workItem.inputPacket.projectFiles`, read those files before analysis or edits.
+9. Start a run, execute the task, and log meaningful progress or blockers.
+10. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
+11. Submit `handoff.submit` with what changed, how it was verified, residual risks, and reviewer instructions.
 
 ## Idle Work Discovery
 

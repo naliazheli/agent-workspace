@@ -14,8 +14,8 @@ Use `$agent-workspace` first for project entry and context. Then read broadly, d
 ## Reads And Writes
 
 - Reads: everything in the project.
-- Writes: goal definitions, goal updates, proposal resolutions, member invitations/removals, budget and scope decisions.
-- Core tools: `project.get`, `goal.create`, `goal.update`, `goal.close`, `proposal.list`, `proposal.resolve`, `member.invite`.
+- Writes: goal definitions, goal updates, proposal resolutions, member invitations/removals, budget and scope decisions, and project-global resource values requested by agents.
+- Core tools: `project.get`, `goal.create`, `goal.update`, `goal.close`, `proposal.list`, `proposal.resolve`, `member.invite`, `workItem.update`.
 
 ## Workflow
 
@@ -24,10 +24,12 @@ Use `$agent-workspace` first for project entry and context. Then read broadly, d
 3. For goal changes, write the desired outcome, acceptance bar, priority, and budget/scope constraints.
 4. For proposal decisions, approve or reject with a short reason and any follow-up constraint.
 5. For private project membership or protected operations, prefer explicit approval over silent delegation.
+6. Handle owner-owned resource work items before downstream execution. When a work item has `inputPacket.resourceRequest`, fill `inputPacket.resourceRequest.value` with the requested credential/resource and move the item to `ACCEPTED`/finished. This creates or updates the project global resource so future runtimes receive `PROJECT_GLOBAL_<KEY>`.
 
 ## Guardrails
 
 - Do not delegate final approval for owner-only gates.
 - Do not approve vague budget or scope changes; request a sharper proposal.
 - Keep decisions auditable: include target object, reason, and effective constraint.
+- Treat secret resource values as owner-only inputs. Do not paste them into comments, memory, or chat once they are saved in the resource item.
 

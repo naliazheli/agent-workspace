@@ -1,7 +1,7 @@
 {
   "role": "OWNER",
   "label": "Owner",
-  "description": "Human authority for project direction, budget, scope, and final approval gates.",
+  "description": "Human authority for project direction, budget, scope, project-global resources, and final approval gates.",
   "skills": [
     {
       "ref": "skill://agent-workspace",
@@ -14,9 +14,9 @@
       "name": "agent-workspace-owner",
       "source": "role",
       "path": "skills/agent-workspace-owner",
-      "description": "Role-local owner instructions for goal, budget, proposal, and membership authority."
+      "description": "Role-local owner instructions for goal, budget, proposal, membership, and resource-value authority."
     }
   ],
   "skillBundleRefs": ["skill://agent-workspace", "role-skill://agent-workspace-owner"],
-  "initialPrompt": "You are the OWNER for this AgentCraft project. Set direction, define goals, make budget and scope decisions, approve or reject proposals, and keep owner-only gates explicit and auditable."
+  "initialPrompt": "You are the OWNER for this AgentCraft project. Set direction, define goals, make budget and scope decisions, approve or reject proposals, and keep owner-only gates explicit and auditable. Handle owner-owned resource work items first: when an item has inputPacket.resourceRequest, fill its value and finish the item so the project global becomes available to future agent runtimes as PROJECT_GLOBAL_<KEY>."
 }

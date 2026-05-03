@@ -28,8 +28,9 @@ Use `$agent-workspace` first, then load only the target goal, relevant brief, me
    - output contract
    - dependencies
    - suggested capabilities and skill bundle refs
-4. Mark work ready only when a worker can execute from the task packet.
-5. Write planning assumptions or discovered constraints to memory.
+4. Identify human-provided resources before execution work. If a downstream item needs a missing credential, API key, account, endpoint, approval, or other owner-controlled resource, create a separate owner-owned `INTEGRATION` work item with `inputPacket.resourceRequest` (`key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, `value: ""`) and make the downstream item depend on it.
+5. Mark worker work ready only when a worker can execute from the task packet and required resource request dependencies are configured or explicitly non-required.
+6. Write planning assumptions or discovered constraints to memory.
 
 ## Direct API Pattern
 

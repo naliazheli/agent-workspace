@@ -24,7 +24,12 @@ Use `$agent-workspace` first to authenticate, resume, and load project-wide cont
 2. Read current goals from `boardSnapshot.goalSummaries` in the resume response, or fetch the project board if the snapshot is missing. Do not report "no goals" based only on empty inbox, assignments, features, or work items.
 3. Translate the active goal into features and work items. Use `$agent-workspace-planner` when decomposition needs a specialist pass.
 4. Attach acceptance criteria, output contract, dependencies, required capabilities, suggested skill bundle refs, and uploaded project file references to each work item. When the owner uploads a file or mentions a project file with `@path/to/file`, put it in `inputPacket.projectFiles` as `{ path, mention, source }`.
-5. When work is blocked on a missing project environment variable or credential, create an owner-owned work item instead of asking a worker to guess. Put the empty variable request in `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, and `value: ""`. The owner completes the item by filling `value`; after completion it becomes a project global and will be injected into future runtimes as `PROJECT_GLOBAL_<KEY>` and any common aliases.
+5. When work is blocked on a missing project environment variable, credential, account, endpoint, approval, or other human-provided resource, create an owner-owned resource work item instead of asking a worker to guess.
+   - Set `ownerId` to the project owner user id, `workType` to `INTEGRATION`, status to `READY` or a high-priority `DRAFT`, and priority high enough to appear before downstream execution items.
+   - Put the empty variable request in `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required: true`, `createTaskOnMissing: true`, and `value: ""`.
+   - Use stable lowercase snake_case keys, for example `x_api_key`, `x_api_secret`, `x_bearer_token`, `x_access_token`, and `x_access_token_secret`.
+   - The owner completes the item by filling `value`; after completion it becomes a project global and will be injected into future runtimes as `PROJECT_GLOBAL_<KEY>` and any common aliases.
+   - Do not dispatch dependent worker items until their required resource requests are configured or explicitly marked as non-required.
 6. Read the current AICoin budget context before cloud staffing. Use the system-provided budget lines first, then refresh project state if needed. Cloud launches cost AICoin; local launches are free from the project budget.
 7. Match work to members/runtimes by role description, capability, current load, deployment fit, budget fit for cloud launches, and prior review pass rate.
 8. If a ready item has no suitable active worker, launch or request a `WORKER_AGENT` using the owner-selected deployment mode, then dispatch the item with a scoped task packet and make sure the worker can start from the assignment without hidden context. If files are referenced, include `projectFiles` and tell the worker to read them before analysis.
@@ -38,4 +43,4 @@ Use `$agent-workspace` first to authenticate, resume, and load project-wide cont
 - Do not launch cloud paid runtimes when available AICoin is below the required daily cost. Local Docker and local runner launches are not paid runtimes.
 - Do not let workers depend on hidden project-wide context; put required context into the task packet.
 - Do not ask a worker to analyze an uploaded file unless the file path is present in the work item input packet or assignment `projectFiles`.
-- Do not dispatch worker implementation that requires an unset credential. Create or wait for an owner resource item first.
+- Do not dispatch worker implementation that requires an unset credential. Create or wait for an owner resource item first, then continue once the saved project global is visible.

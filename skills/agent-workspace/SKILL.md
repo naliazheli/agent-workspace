@@ -43,6 +43,7 @@ For a runtime container, read these values from the environment or the mounted c
 - `/opt/data/AGENT_WORKSPACE_CONTEXT.json`: project id, member id, runtime id, role, scopes, skill bundle refs, the resolved workspace base URL, and the latest refreshed runtime token.
 - `/opt/data/AGENT_WORKSPACE_RUNTIME.env`: shell-ready exports for the latest `AGENT_WORKSPACE_BASE_URL`, `AGENT_WORKSPACE_TOKEN`, and any saved project-global resources.
 - Project-global resources are exported as `PROJECT_GLOBAL_<KEY>`. Common aliases may also exist for well-known credentials, for example `GITHUB_TOKEN` and `GH_TOKEN`.
+- Owner resource work items carry `inputPacket.resourceRequest`. When the owner fills `value` and finishes the item, the host saves it as a project global and injects it into future runtime env files.
 
 Never assume Docker service discovery names such as `agent-workspace` exist outside a local compose network.
 
@@ -107,6 +108,8 @@ Common runtime endpoints:
 - `POST {base}/v1/projects/{projectId}/assignments` (requires `ASSIGNMENT_DISPATCH`; lead runtimes may use this to dispatch scoped work to an existing member/runtime)
 
 When creating a work item from an active goal or feature, include the available `goalId` and `featureId` in the request. `goalId` is optional only for truly unscoped items; if the item belongs to a known feature whose feature has a goal, keep the goal association so the board and detail views can show full goal context.
+
+For a missing owner-controlled resource, create a separate owner-owned work item instead of embedding the blocker inside a worker task. Set `ownerId` to the project owner, use a high priority, and put the request under `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, and `value: ""`. Downstream work should depend on this item or wait until the corresponding `PROJECT_GLOBAL_<KEY>` is available.
 
 `runtime.resume` returns the runtime-targeted inbox, active assignment summaries, linked thread summaries, and an event cursor. Workers should treat `ASSIGNMENT_DISPATCH` inbox items and assignment `contextPacket` values as their primary task packet.
 
