@@ -27,7 +27,9 @@ Use `$agent-workspace` first to authenticate, resume, and load project-wide cont
 5. When work is blocked on a missing project environment variable, credential, account, endpoint, approval, or other human-provided resource, create an owner-owned resource work item instead of asking a worker to guess.
    - Set `ownerId` to the project owner user id, `workType` to `INTEGRATION`, status to `READY` or a high-priority `DRAFT`, and priority high enough to appear before downstream execution items.
    - Put the empty variable request in `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required: true`, `createTaskOnMissing: true`, and `value: ""`.
-   - Use stable lowercase snake_case keys, for example `x_api_key`, `x_api_secret`, `x_bearer_token`, `x_access_token`, and `x_access_token_secret`.
+   - Use stable lowercase snake_case keys. Create one atomic owner resource item per project-global key; if a workflow needs multiple credentials, create separate items or clearly separate keys.
+   - Do not bundle several unrelated keys into one `resourceRequest.description`; the owner completion flow turns each request into a single project global.
+   - Do not infer a vendor, website, social network, API provider, platform-specific key set, or platform-specific skill from a generic resource key or generic task. Keep labels and descriptions neutral unless the owner explicitly named that platform in the goal, brief, work item, or latest instruction.
    - The owner completes the item by filling `value`; after completion it becomes a project global and will be injected into future runtimes as `PROJECT_GLOBAL_<KEY>` and any common aliases.
    - Do not dispatch dependent worker items until their required resource requests are configured or explicitly marked as non-required.
 6. Read the current AICoin budget context before cloud staffing. Use the system-provided budget lines first, then refresh project state if needed. Cloud launches cost AICoin; local launches are free from the project budget.

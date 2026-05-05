@@ -107,9 +107,16 @@ Common runtime endpoints:
 - `POST {base}/v1/projects/{projectId}/work-items`
 - `POST {base}/v1/projects/{projectId}/assignments` (requires `ASSIGNMENT_DISPATCH`; lead runtimes may use this to dispatch scoped work to an existing member/runtime)
 
+Host API runtime helpers are available when `AIFACTORY_API_BASE_URL` and `AIFACTORY_RUNTIME_TOKEN` are present in `/opt/data/AGENT_WORKSPACE_RUNTIME.env`:
+
+- `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/agent-runtimes/runtime/launch`
+- `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/runtime-dispatch`
+
+Use `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN`. For a ready worker item with no active worker runtime, call `runtime-dispatch` with `role: "WORKER_AGENT"` and `launchIfMissing: true`; the host will launch a worker runtime and assign the item to that worker. Do not self-assign worker work to the lead member.
+
 When creating a work item from an active goal or feature, include the available `goalId` and `featureId` in the request. `goalId` is optional only for truly unscoped items; if the item belongs to a known feature whose feature has a goal, keep the goal association so the board and detail views can show full goal context.
 
-For a missing owner-controlled resource, create a separate owner-owned work item instead of embedding the blocker inside a worker task. Set `ownerId` to the project owner, use a high priority, and put the request under `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, and `value: ""`. Downstream work should depend on this item or wait until the corresponding `PROJECT_GLOBAL_<KEY>` is available.
+For a missing owner-controlled resource, create a separate owner-owned work item instead of embedding the blocker inside a worker task. Set `ownerId` to the project owner, use a high priority, and put the request under `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, and `value: ""`. Use one atomic resource item per project-global key, with stable lowercase snake_case keys. Do not infer a vendor, website, social network, API provider, platform-specific key set, or platform-specific skill from a generic resource key or generic task; keep labels and descriptions neutral unless the owner explicitly named that platform. Downstream work should depend on this item or wait until the corresponding `PROJECT_GLOBAL_<KEY>` is available.
 
 `runtime.resume` returns the runtime-targeted inbox, active assignment summaries, linked thread summaries, and an event cursor. Workers should treat `ASSIGNMENT_DISPATCH` inbox items and assignment `contextPacket` values as their primary task packet.
 
