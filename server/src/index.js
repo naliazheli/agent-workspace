@@ -139,6 +139,15 @@ const projectFilePathQuerySchema = z.object({
   expiresIn: z.coerce.number().int().min(60).max(86400).default(3600),
 });
 
+const workItemListQuerySchema = z.object({
+  status: z.string().trim().optional(),
+  goalId: z.string().trim().optional(),
+  featureId: z.string().trim().optional(),
+  ownerId: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 const projectFileWriteSchema = z.object({
   path: z.string().trim().min(1),
   content: z.string().default(''),
@@ -190,6 +199,7 @@ const createWorkItemSchema = z.object({
   title: z.string().trim().min(1).max(191),
   description: z.string().trim().optional(),
   workType: z.string().trim().min(1).max(50).default('PLANNING'),
+  status: z.enum(['DRAFT', 'READY']).optional(),
   scopeBrief: z.string().trim().optional(),
   acceptanceCriteria: z.string().trim().optional(),
   inputPacket: z.record(z.any()).optional(),
@@ -201,6 +211,30 @@ const createWorkItemSchema = z.object({
   dueAt: z.string().datetime().optional(),
   createdByUserId: z.string().trim().optional(),
 });
+
+const updateWorkItemSchema = z
+  .object({
+    title: z.string().trim().min(1).max(191).optional(),
+    description: z.string().trim().nullable().optional(),
+    workType: z.string().trim().min(1).max(50).optional(),
+    status: z
+      .enum(['DRAFT', 'READY', 'ASSIGNED', 'IN_PROGRESS', 'IN_REVIEW', 'NEEDS_REVISION', 'ACCEPTED', 'REJECTED', 'CANCELLED'])
+      .optional(),
+    scopeBrief: z.string().trim().nullable().optional(),
+    acceptanceCriteria: z.string().trim().nullable().optional(),
+    inputPacket: z.record(z.any()).nullable().optional(),
+    outputContract: z.record(z.any()).nullable().optional(),
+    dependsOn: z.array(z.string()).optional(),
+    concurrencyMode: z.enum(['SINGLE', 'RACE', 'MULTI_ROLE', 'PRIMARY_BACKUP']).optional(),
+    priority: z.number().int().optional(),
+    ownerId: z.string().trim().nullable().optional(),
+    dueAt: z.string().datetime().nullable().optional(),
+    updatedByUserId: z.string().trim().optional(),
+  })
+  .refine(
+    (input) => Object.keys(input).some((key) => input[key] !== undefined),
+    { message: 'At least one work item field must be provided' },
+  );
 
 const createProposalSchema = z.object({
   type: z.string().trim().min(1),
@@ -446,8 +480,9 @@ async function requireRuntime(request, { projectId, runtimeId, scope } = {}) {
   if (runtimeId && token.runtimeId !== runtimeId) {
     throw forbidden('Runtime token does not match runtime');
   }
-  if (scope && !token.scopes.includes(scope)) {
-    throw forbidden(`Runtime token missing required scope: ${scope}`);
+  const requiredScopes = Array.isArray(scope) ? scope : scope ? [scope] : [];
+  if (requiredScopes.length && !requiredScopes.some((item) => token.scopes.includes(item))) {
+    throw forbidden(`Runtime token missing one of required scopes: ${requiredScopes.join(', ')}`);
   }
 
   const grant = await prisma.projectAccessGrant.findFirst({
@@ -538,6 +573,68 @@ async function actorUserIdFromAuth(projectId, auth, explicitUserId) {
   }
   const project = await getProjectOrThrow(projectId);
   return project.ownerId;
+}
+
+function workItemUpdateScopes(input) {
+  const changedFields = Object.keys(input).filter((key) => key !== 'updatedByUserId' && input[key] !== undefined);
+  const statusOnly = changedFields.length === 1 && changedFields[0] === 'status';
+  if (!statusOnly) {
+    if (input.status && !['DRAFT', 'READY'].includes(input.status)) {
+      return ['WORK_ITEM_UPDATE'];
+    }
+    return ['WORK_ITEM_UPDATE', 'WORK_ITEM_CREATE'];
+  }
+  if (['DRAFT', 'READY'].includes(input.status)) {
+    return ['WORK_ITEM_STATUS_UPDATE', 'WORK_ITEM_UPDATE', 'WORK_ITEM_CREATE'];
+  }
+  if (['ACCEPTED', 'REJECTED'].includes(input.status)) {
+    return ['WORK_ITEM_STATUS_UPDATE', 'WORK_ITEM_UPDATE', 'ASSIGNMENT_DISPATCH', 'REVIEW_SUBMIT'];
+  }
+  return ['WORK_ITEM_STATUS_UPDATE', 'WORK_ITEM_UPDATE', 'ASSIGNMENT_DISPATCH'];
+}
+
+function workItemUpdateData(input) {
+  const data = {};
+  for (const field of [
+    'title',
+    'description',
+    'workType',
+    'status',
+    'scopeBrief',
+    'acceptanceCriteria',
+    'inputPacket',
+    'outputContract',
+    'dependsOn',
+    'concurrencyMode',
+    'priority',
+    'ownerId',
+  ]) {
+    if (input[field] !== undefined) {
+      data[field] = input[field];
+    }
+  }
+  if (input.dueAt !== undefined) {
+    data.dueAt = input.dueAt ? new Date(input.dueAt) : null;
+  }
+  return data;
+}
+
+function changedWorkItemFields(before, after) {
+  return [
+    'title',
+    'description',
+    'workType',
+    'status',
+    'scopeBrief',
+    'acceptanceCriteria',
+    'inputPacket',
+    'outputContract',
+    'dependsOn',
+    'concurrencyMode',
+    'priority',
+    'ownerId',
+    'dueAt',
+  ].filter((field) => JSON.stringify(before?.[field] ?? null) !== JSON.stringify(after?.[field] ?? null));
 }
 
 async function ensureProjectReference(projectId, type, id) {
@@ -1237,7 +1334,7 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
         title: input.title,
         description: input.description ?? null,
         workType: input.workType,
-        status: 'DRAFT',
+        status: input.status ?? 'DRAFT',
         scopeBrief: input.scopeBrief ?? null,
         acceptanceCriteria: input.acceptanceCriteria ?? null,
         inputPacket: runtimeMetadata
@@ -1272,6 +1369,90 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
     });
 
     return created;
+  });
+
+  return { workItemId: workItem.id, workItem };
+});
+
+app.get('/v1/projects/:projectId/work-items', async (request) => {
+  const { projectId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_BOARD_READ' });
+  await getProjectOrThrow(projectId);
+
+  const query = workItemListQuerySchema.parse(request.query ?? {});
+  const where = {
+    projectId,
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.goalId ? { goalId: query.goalId } : {}),
+    ...(query.featureId ? { featureId: query.featureId } : {}),
+    ...(query.ownerId ? { ownerId: query.ownerId } : {}),
+  };
+  const [items, total] = await Promise.all([
+    prisma.projectWorkItem.findMany({
+      where,
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      skip: (query.page - 1) * query.limit,
+      take: query.limit,
+    }),
+    prisma.projectWorkItem.count({ where }),
+  ]);
+
+  return {
+    data: items,
+    meta: { total, page: query.page, limit: query.limit, totalPages: Math.ceil(total / query.limit) },
+  };
+});
+
+app.get('/v1/projects/:projectId/work-items/:workItemId', async (request) => {
+  const { projectId, workItemId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_BOARD_READ' });
+  await getProjectOrThrow(projectId);
+
+  const workItem = await prisma.projectWorkItem.findFirst({
+    where: { id: workItemId, projectId },
+  });
+  if (!workItem) {
+    throw notFound('Work item not found in project');
+  }
+
+  return { workItem };
+});
+
+app.patch('/v1/projects/:projectId/work-items/:workItemId', async (request) => {
+  const { projectId, workItemId } = request.params;
+  const input = updateWorkItemSchema.parse(request.body ?? {});
+  const auth = await requireHostOrRuntime(request, { projectId, scope: workItemUpdateScopes(input) });
+  await getProjectOrThrow(projectId);
+  const actorUserId = await actorUserIdFromAuth(projectId, auth, input.updatedByUserId);
+
+  const workItem = await prisma.$transaction(async (tx) => {
+    const current = await tx.projectWorkItem.findFirst({
+      where: { id: workItemId, projectId },
+    });
+    if (!current) {
+      throw notFound('Work item not found in project');
+    }
+
+    const updated = await tx.projectWorkItem.update({
+      where: { id: workItemId },
+      data: workItemUpdateData(input),
+    });
+
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'WORK_ITEM_UPDATED',
+      refType: 'WORK_ITEM',
+      refId: updated.id,
+      actorUserId,
+      payload: {
+        changedFields: changedWorkItemFields(current, updated),
+        previousStatus: current.status,
+        status: updated.status,
+        updatedBy: auth.type === 'runtime' ? 'agent-runtime' : 'host',
+      },
+    });
+
+    return updated;
   });
 
   return { workItemId: workItem.id, workItem };
@@ -2146,6 +2327,19 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
       },
     });
 
+    const nextWorkItemStatusByDecision = {
+      APPROVED: 'ACCEPTED',
+      REQUEST_CHANGES: 'NEEDS_REVISION',
+      REJECTED: 'REJECTED',
+    };
+    const nextWorkItemStatus = nextWorkItemStatusByDecision[input.decision];
+    if (nextWorkItemStatus) {
+      await tx.projectWorkItem.update({
+        where: { id: assignment.workItemId },
+        data: { status: nextWorkItemStatus },
+      });
+    }
+
     let generatedInboxItemId = null;
     if (input.decision === 'REQUEST_CHANGES') {
       const assigneeMember = await tx.projectMember.findFirst({
@@ -2179,7 +2373,7 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
       refType: 'REVIEW',
       refId: createdReview.id,
       actorUserId: reviewerMember.userId,
-      payload: { threadId: thread.id, generatedInboxItemId },
+      payload: { threadId: thread.id, generatedInboxItemId, workItemStatus: nextWorkItemStatus ?? null },
     });
 
     return { createdReview, generatedInboxItemId };

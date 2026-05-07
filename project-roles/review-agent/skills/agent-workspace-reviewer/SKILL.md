@@ -27,11 +27,11 @@ Use `$agent-workspace` first, then load the review request, work item, handoff a
    - `APPROVED` when criteria are met.
    - `CHANGES_REQUESTED` when the worker can revise.
    - `REJECTED` when the handoff is unusable or materially off target.
-6. On approval, write reusable decisions or constraints to memory.
+6. A submitted approval updates the linked work item to `ACCEPTED`; requested changes move it to `NEEDS_REVISION`; rejection moves it to `REJECTED`.
+7. On approval, write reusable decisions or constraints to memory.
 
 ## Guardrails
 
 - Do not approve based only on worker summary when artifacts are inspectable.
 - Keep requested changes specific and actionable.
 - Remember that repeated rejection can trigger a proposal; use rejection deliberately.
-

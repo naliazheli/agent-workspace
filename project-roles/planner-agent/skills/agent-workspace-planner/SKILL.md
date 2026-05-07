@@ -38,6 +38,7 @@ When the runtime has `FEATURE_CREATE` and `WORK_ITEM_CREATE`, it may write direc
 
 - `POST {AGENT_WORKSPACE_BASE_URL}/v1/projects/{projectId}/features`
 - `POST {AGENT_WORKSPACE_BASE_URL}/v1/projects/{projectId}/work-items`
+- `PATCH {AGENT_WORKSPACE_BASE_URL}/v1/projects/{projectId}/work-items/{workItemId}`
 
 Send `Authorization: Bearer {workspaceToken}` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env`.
 For long-lived runtimes, prefer sourcing `/opt/data/AGENT_WORKSPACE_RUNTIME.env` in the same shell command over reading secret values through `read_file`, because tool output may redact tokens.
@@ -47,7 +48,8 @@ Minimum useful planner write pattern:
 1. Create a reviewable feature with a narrow title and description.
 2. Create one or more work items linked to that feature.
 3. Put acceptance criteria and output contract onto the work item, not only into chat text.
-4. If the scope is unclear, write the first decomposition and separately list questions for OWNER or LEAD instead of blocking all progress.
+4. Mark a worker item `READY` only after objective, dependencies, acceptance criteria, and output contract are sufficient for execution. `READY` and other status-only changes require `WORK_ITEM_STATUS_UPDATE`; broader edits require `WORK_ITEM_UPDATE`.
+5. If the scope is unclear, write the first decomposition and separately list questions for OWNER or LEAD instead of blocking all progress.
 
 ## Guardrails
 

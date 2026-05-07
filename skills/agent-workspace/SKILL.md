@@ -92,6 +92,8 @@ curl -s -X POST "$AGENT_WORKSPACE_BASE_URL/v1/projects/$PROJECT_ID/features" \
   -d '{...}'
 ```
 
+Local Hermes runtime images may not include `curl` or `jq`, and runtimes usually cannot install packages with `apt-get`. If `curl` is missing, use the available standard runtime such as `python3` with `urllib.request` or Node.js `fetch`; do not spend time trying to install system packages.
+
 Local Docker debug URLs such as `http://host.docker.internal:3010` may trigger an approval prompt in secure runtimes; approve once, then continue the same command flow.
 
 Common runtime endpoints:
@@ -105,24 +107,32 @@ Common runtime endpoints:
 - `POST {base}/v1/projects/{projectId}/files/upload`
 - `POST {base}/v1/projects/{projectId}/features`
 - `POST {base}/v1/projects/{projectId}/work-items`
+- `GET {base}/v1/projects/{projectId}/work-items`
+- `GET {base}/v1/projects/{projectId}/work-items/{workItemId}`
+- `PATCH {base}/v1/projects/{projectId}/work-items/{workItemId}`
 - `POST {base}/v1/projects/{projectId}/assignments` (requires `ASSIGNMENT_DISPATCH`; lead runtimes may use this to dispatch scoped work to an existing member/runtime)
 
 Host API runtime helpers are available when `AIFACTORY_API_BASE_URL` and `AIFACTORY_RUNTIME_TOKEN` are present in `/opt/data/AGENT_WORKSPACE_RUNTIME.env`:
 
 - `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/agent-runtimes/runtime/launch`
 - `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/runtime-dispatch`
+- `PATCH $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/runtime-update`
+- `PATCH $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/{assignmentId}/runtime-update`
 
-Use `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN`. For a ready worker item with no active worker runtime, call `runtime-dispatch` with `role: "WORKER_AGENT"` and `launchIfMissing: true`; the host will launch a worker runtime and assign the item to that worker. Do not self-assign worker work to the lead member.
+Use `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN`. For a ready worker item with no active worker runtime, call `runtime-dispatch` with `role: "WORKER_AGENT"` and `launchIfMissing: true`; the host will launch a worker runtime, assign the item to that worker, and wake the target runtime with the assignment packet. To update a work item through the host runtime helper, call `runtime-update` with fields such as `{ "status": "READY" }` or `{ "status": "ACCEPTED" }`. A worker should not update the work item status directly; it should update its own assignment to `ACTIVE` or `COMPLETED` through the assignment runtime helper, which moves the work item to `IN_PROGRESS` or `IN_REVIEW`. Do not self-assign worker work to the lead member.
 
-When creating a work item from an active goal or feature, include the available `goalId` and `featureId` in the request. `goalId` is optional only for truly unscoped items; if the item belongs to a known feature whose feature has a goal, keep the goal association so the board and detail views can show full goal context.
+When creating a work item from an active goal or feature, include the available `goalId` and `featureId` in the request. `goalId` is optional only for truly unscoped items; if the item belongs to a known feature whose feature has a goal, keep the goal association so the board and detail views can show full goal context. `acceptanceCriteria` is a single string, not an array; use a newline-delimited numbered list when there are multiple criteria.
+Use `READY` for work items that are dispatchable, `IN_PROGRESS` while execution is underway, `IN_REVIEW` after a worker handoff, and `ACCEPTED` as the completed/finished state. Do not use `COMPLETED` or `DONE` for project work item status.
 
-For a missing owner-controlled resource, create a separate owner-owned work item instead of embedding the blocker inside a worker task. Set `ownerId` to the project owner, use a high priority, and put the request under `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, and `value: ""`. Use one atomic resource item per project-global key, with stable lowercase snake_case keys. Do not infer a vendor, website, social network, API provider, platform-specific key set, or platform-specific skill from a generic resource key or generic task; keep labels and descriptions neutral unless the owner explicitly named that platform. Downstream work should depend on this item or wait until the corresponding `PROJECT_GLOBAL_<KEY>` is available.
+`PATCH /v1/projects/{projectId}/work-items/{workItemId}` requires `WORK_ITEM_STATUS_UPDATE` when changing only `status`; broader field updates require `WORK_ITEM_UPDATE`. `PROJECT_BOARD_READ` covers list/get, and `WORK_ITEM_CREATE` covers create.
+
+For a missing owner-controlled resource, create a separate owner-owned work item instead of embedding the blocker inside a worker task. Set `ownerId` to the project owner user id, not the owner member id; use a high priority, and put the request under `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, and `value: ""`. Use one atomic resource item per project-global key, with stable lowercase snake_case keys. Do not infer a vendor, website, social network, API provider, platform-specific key set, or platform-specific skill from a generic resource key or generic task; keep labels and descriptions neutral unless the owner explicitly named that platform. Downstream work should depend on this item or wait until the corresponding `PROJECT_GLOBAL_<KEY>` is available.
 
 `runtime.resume` returns the runtime-targeted inbox, active assignment summaries, linked thread summaries, and an event cursor. Workers should treat `ASSIGNMENT_DISPATCH` inbox items and assignment `contextPacket` values as their primary task packet.
 
-## Project Shared Files
+## Project Shared Resources
 
-Project shared storage is owned by `agent-workspace`, not by a host product. Use it for files that the project owner and authorized agent runtimes should share: briefs, source documents, generated reports, datasets, review evidence, handoff bundles, and other durable project context.
+Project shared resource storage is owned by `agent-workspace`, not by a host product. Use it for files that project members and authorized agent runtimes should share: briefs, source documents, generated reports, datasets, review evidence, handoff bundles, submitted work item attachments, and other durable project context.
 
 Access rules:
 

@@ -24,7 +24,7 @@ Use `$agent-workspace` first for project entry and context. Then read broadly, d
 3. For goal changes, write the desired outcome, acceptance bar, priority, and budget/scope constraints.
 4. For proposal decisions, approve or reject with a short reason and any follow-up constraint.
 5. For private project membership or protected operations, prefer explicit approval over silent delegation.
-6. Handle owner-owned resource work items before downstream execution. When a work item has `inputPacket.resourceRequest`, fill `inputPacket.resourceRequest.value` with the requested credential/resource and move the item to `ACCEPTED`/finished. This creates or updates the project global resource so future runtimes receive `PROJECT_GLOBAL_<KEY>`.
+6. Handle owner-owned resource work items before downstream execution. When a work item has `inputPacket.resourceRequest`, fill `inputPacket.resourceRequest.value` with the requested credential/resource and update the item to `ACCEPTED` through `PATCH /v1/projects/{projectId}/work-items/{workItemId}` or the matching `workItem.update` tool. This creates or updates the project global resource so future runtimes receive `PROJECT_GLOBAL_<KEY>`.
 
 ## Guardrails
 
@@ -32,4 +32,3 @@ Use `$agent-workspace` first for project entry and context. Then read broadly, d
 - Do not approve vague budget or scope changes; request a sharper proposal.
 - Keep decisions auditable: include target object, reason, and effective constraint.
 - Treat secret resource values as owner-only inputs. Do not paste them into comments, memory, or chat once they are saved in the resource item.
-

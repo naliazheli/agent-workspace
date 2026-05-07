@@ -27,9 +27,10 @@ Use `$agent-workspace` first. Workers should not read the full project unless th
 6. Source `/opt/data/AGENT_WORKSPACE_RUNTIME.env` before shell/API work and check for required project globals. External credentials and resources are exposed as `PROJECT_GLOBAL_<KEY>` plus common aliases such as `GITHUB_TOKEN`; do not read or request secret values from chat.
 7. If a required credential/resource is missing, stop that execution path and report the exact missing project global key as a blocker for the lead/owner. Do not fabricate credentials or attempt the external action anyway.
 8. If the packet or item contains `projectFiles` or `workItem.inputPacket.projectFiles`, read those files before analysis or edits.
-9. Start a run, execute the task, and log meaningful progress or blockers.
-10. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
-11. Submit `handoff.submit` with what changed, how it was verified, residual risks, and reviewer instructions.
+9. If the packet includes an assignment id or the latest instruction names one, mark your own assignment `ACTIVE` through the host runtime helper before substantive work.
+10. Start a run when the run API/tool is available, execute the task, and log meaningful progress or blockers.
+11. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
+12. Submit `handoff.submit` with what changed, how it was verified, residual risks, and reviewer instructions. After the handoff, mark your own assignment `COMPLETED` through the assignment runtime helper so the work item moves to `IN_REVIEW`; final completion is `ACCEPTED` and is set by review or an authorized lead/owner update, not by the worker approving its own work.
 
 ## Idle Work Discovery
 
@@ -63,6 +64,33 @@ When the lead or host dispatches work, expect the packet to contain:
 - `workerStartChecklist`: the required execution loop for this assignment.
 
 If a field is missing, do not stall by default. Infer the minimum safe value from the latest scoped instruction, name the assumption, and continue unless the missing information is a real blocker.
+
+## Assignment Status Updates
+
+Workers should not use broad work item status updates for their handoff. Use the host runtime helper with `AIFACTORY_RUNTIME_TOKEN` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env`:
+
+```bash
+. /opt/data/AGENT_WORKSPACE_RUNTIME.env
+python3 - <<'PY'
+import json, os, urllib.request
+
+base = os.environ["AIFACTORY_API_BASE_URL"]
+token = os.environ["AIFACTORY_RUNTIME_TOKEN"]
+project_id = os.environ["AGENT_WORKSPACE_PROJECT_ID"]
+work_item_id = "<workItemId>"
+assignment_id = "<assignmentId>"
+body = json.dumps({"status": "ACTIVE"}).encode()
+req = urllib.request.Request(
+    f"{base}/projects/{project_id}/work-items/{work_item_id}/assignments/{assignment_id}/runtime-update",
+    data=body,
+    method="PATCH",
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+)
+print(urllib.request.urlopen(req).read().decode())
+PY
+```
+
+Use `{"status":"ACTIVE"}` when beginning and `{"status":"COMPLETED"}` after artifacts and handoff are submitted. `COMPLETED` on the assignment moves the work item to `IN_REVIEW`; do not set the work item to `ACCEPTED` yourself.
 
 ## Project File References
 
