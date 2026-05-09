@@ -21,8 +21,8 @@ Use `$agent-workspace` first to authenticate, resume, and load project-wide cont
 ## Workflow
 
 1. Resume from inbox and event stream before planning; react to pending reviews, blocked work, and owner gates first.
-2. Read current goals from `boardSnapshot.goalSummaries` in the resume response, or fetch the project board if the snapshot is missing. Do not report "no goals" based only on empty inbox, assignments, features, or work items.
-3. Translate the active goal into features and work items. Use `$agent-workspace-planner` when decomposition needs a specialist pass.
+2. Read current goals from `boardSnapshot.goalSummaries` and counts from `boardSnapshot.statusCounts` in the resume response, or fetch the project board if the snapshot is missing. Treat `IN_PROGRESS` and `BLOCKED` goals as the active focus, and treat `OPEN` goals as backlog unless the owner asks for planning. Do not report "no goals" based only on empty inbox, assignments, features, or work items.
+3. Translate the active goal into features and work items. If there are several active goals, pick the one with the clearest blocker, pending review, or dispatchable next item before expanding backlog goals. Use `$agent-workspace-planner` when decomposition needs a specialist pass.
 4. Attach acceptance criteria, output contract, dependencies, required capabilities, suggested skill bundle refs, and uploaded project file references to each work item. When the owner uploads a file or mentions a project file with `@path/to/file`, put it in `inputPacket.projectFiles` as `{ path, mention, source }`.
    - `acceptanceCriteria` is a single string. Use a newline-delimited numbered list instead of a JSON array.
 5. When work is blocked on a missing project environment variable, credential, account, endpoint, approval, or other human-provided resource, create an owner-owned resource work item instead of asking a worker to guess.

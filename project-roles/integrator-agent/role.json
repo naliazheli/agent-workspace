@@ -17,6 +17,15 @@
       "description": "Role-local integrator instructions for external events, protected gates, and merge/action safety."
     }
   ],
-  "skillBundleRefs": ["skill://agent-workspace", "role-skill://agent-workspace-integrator"],
-  "initialPrompt": "You are the INTEGRATOR_AGENT for this AgentCraft project. Start by loading accepted work, external links, output contracts, integration policy, and protected-branch or release gates. Execute only allowed external actions, record the result, and escalate protected or unsafe operations through proposals."
+  "skillBundleRefs": [
+    "skill://agent-workspace",
+    "role-skill://agent-workspace-integrator"
+  ],
+  "initialPrompt": "You are the INTEGRATOR_AGENT for this AgentCraft project. Start by loading accepted work, external links, output contracts, integration policy, and protected-branch or release gates. Execute only allowed external actions, record the result, and escalate protected or unsafe operations through proposals.",
+  "polling": {
+    "enabled": false,
+    "strategy": "IDLE_ONLY",
+    "intervalMinutes": 60,
+    "message": "keep working"
+  }
 }

@@ -41,6 +41,21 @@ await app.register(multipart, {
   },
 });
 
+const CLOSED_GOAL_STATUSES = ['DONE', 'CANCELLED'];
+const ACTIVE_GOAL_STATUSES = ['IN_PROGRESS', 'BLOCKED'];
+const CLOSED_WORK_ITEM_STATUSES = ['ACCEPTED', 'CANCELLED'];
+const ATTENTION_WORK_ITEM_STATUSES = ['NEEDS_REVISION', 'IN_REVIEW', 'READY', 'ASSIGNED', 'IN_PROGRESS', 'REJECTED'];
+const OPEN_ASSIGNMENT_STATUSES = ['PROPOSED', 'ACTIVE', 'PAUSED'];
+const OPEN_INBOX_STATUSES = ['UNREAD', 'READ', 'ACKED'];
+
+function nonClosedWorkItemWhere(includeClosed) {
+  return includeClosed ? {} : { status: { notIn: CLOSED_WORK_ITEM_STATUSES } };
+}
+
+function nonClosedGoalWhere(includeClosed) {
+  return includeClosed ? {} : { status: { notIn: CLOSED_GOAL_STATUSES } };
+}
+
 const runtimeTokenSchema = z.object({
   projectId: z.string(),
   runtimeId: z.string(),
@@ -119,6 +134,20 @@ const resumeRuntimeSchema = z.object({
   cursor: z.string().trim().optional(),
 });
 
+const booleanQuerySchema = z.preprocess((value) => {
+  if (value === undefined) return undefined;
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return value;
+}, z.boolean().optional());
+
+const boardQuerySchema = z.object({
+  mode: z.enum(['attention', 'planning']).default('attention'),
+  includeClosed: booleanQuerySchema.default(false),
+  goalLimit: z.coerce.number().int().min(1).max(100).default(25),
+  workItemLimit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 const heartbeatSchema = z.object({
   projectId: z.string().trim().min(1),
   status: z.string().trim().min(1),
@@ -144,6 +173,7 @@ const workItemListQuerySchema = z.object({
   goalId: z.string().trim().optional(),
   featureId: z.string().trim().optional(),
   ownerId: z.string().trim().optional(),
+  includeClosed: booleanQuerySchema.default(false),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -1085,28 +1115,50 @@ app.get('/v1/projects/:projectId', async (request) => {
 
 app.get('/v1/projects/:projectId/board', async (request) => {
   const { projectId } = request.params;
+  const query = boardQuerySchema.parse(request.query ?? {});
   await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_BOARD_READ' });
   await getProjectOrThrow(projectId);
 
-  const [members, goals, workItems, assignments, reviews, inboxItems, presenceRows] = await Promise.all([
+  const goalSelect = { id: true, title: true, description: true, priority: true, status: true, sortOrder: true };
+  const workItemSelect = {
+    id: true,
+    title: true,
+    status: true,
+    priority: true,
+    goalId: true,
+    featureId: true,
+    ownerId: true,
+  };
+  const [members, activeGoals, backlogGoals, workItems, assignments, reviews, inboxItems, presenceRows, goalStatusRows, workItemStatusRows] = await Promise.all([
     prisma.projectMember.count({ where: { projectId, removedAt: null } }),
     prisma.projectGoal.findMany({
-      where: { projectId },
-      select: { id: true, title: true, description: true, priority: true, status: true, sortOrder: true },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      where: {
+        projectId,
+        ...(query.mode === 'attention' ? { status: { in: ACTIVE_GOAL_STATUSES } } : nonClosedGoalWhere(query.includeClosed)),
+      },
+      select: goalSelect,
+      orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      take: query.goalLimit,
+    }),
+    prisma.projectGoal.findMany({
+      where: {
+        projectId,
+        ...(query.mode === 'attention' ? { status: 'OPEN' } : { id: '__never__' }),
+      },
+      select: goalSelect,
+      orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      take: Math.min(5, query.goalLimit),
     }),
     prisma.projectWorkItem.findMany({
-      where: { projectId },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        priority: true,
-        featureId: true,
-        ownerId: true,
+      where: {
+        projectId,
+        ...(query.mode === 'attention'
+          ? { status: { in: ATTENTION_WORK_ITEM_STATUSES } }
+          : nonClosedWorkItemWhere(query.includeClosed)),
       },
-      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-      take: 50,
+      select: workItemSelect,
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+      take: query.workItemLimit,
     }),
     prisma.projectAssignment.findMany({
       where: { projectId },
@@ -1123,7 +1175,7 @@ app.get('/v1/projects/:projectId/board', async (request) => {
     }),
     prisma.projectReview.count({ where: { projectId, status: 'PENDING' } }),
     prisma.projectInboxItem.findMany({
-      where: { projectId, status: { in: ['UNREAD', 'READ', 'ACKED'] } },
+      where: { projectId, status: { in: OPEN_INBOX_STATUSES } },
       select: {
         id: true,
         kind: true,
@@ -1147,22 +1199,41 @@ app.get('/v1/projects/:projectId/board', async (request) => {
       },
       orderBy: { updatedAt: 'desc' },
     }),
+    prisma.projectGoal.groupBy({
+      by: ['status'],
+      where: { projectId },
+      _count: { _all: true },
+    }),
+    prisma.projectWorkItem.groupBy({
+      by: ['status'],
+      where: { projectId },
+      _count: { _all: true },
+    }),
   ]);
 
   const openCiIncidents = await prisma.projectInboxItem.count({
-    where: { projectId, kind: 'CI_INCIDENT', status: { in: ['UNREAD', 'READ', 'ACKED'] } },
+    where: { projectId, kind: 'CI_INCIDENT', status: { in: OPEN_INBOX_STATUSES } },
   });
+  const goals = query.mode === 'attention' ? [...activeGoals, ...backlogGoals] : activeGoals;
+  const goalStatusCounts = Object.fromEntries(goalStatusRows.map((row) => [row.status, row._count._all]));
+  const workItemStatusCounts = Object.fromEntries(workItemStatusRows.map((row) => [row.status, row._count._all]));
 
   return {
     projectId,
     summary: {
       memberCount: members,
-      openAssignments: assignments.filter((item) => ['PROPOSED', 'ACTIVE', 'PAUSED'].includes(item.status)).length,
+      openAssignments: assignments.filter((item) => OPEN_ASSIGNMENT_STATUSES.includes(item.status)).length,
       pendingReviews: reviews,
       openCiIncidents,
+      goalStatusCounts,
+      workItemStatusCounts,
+      backlogGoalCount: goalStatusCounts.OPEN || 0,
+      closedGoalCount: (goalStatusCounts.DONE || 0) + (goalStatusCounts.CANCELLED || 0),
+      closedWorkItemCount: (workItemStatusCounts.ACCEPTED || 0) + (workItemStatusCounts.CANCELLED || 0),
     },
     memberPresence: presenceRows,
     goalSummaries: goals,
+    backlogGoalSummaries: backlogGoals,
     assignmentSummaries: assignments,
     workItemSummaries: workItems,
     inboxSummary: inboxItems,
@@ -1383,6 +1454,7 @@ app.get('/v1/projects/:projectId/work-items', async (request) => {
   const where = {
     projectId,
     ...(query.status ? { status: query.status } : {}),
+    ...(!query.status ? nonClosedWorkItemWhere(query.includeClosed) : {}),
     ...(query.goalId ? { goalId: query.goalId } : {}),
     ...(query.featureId ? { featureId: query.featureId } : {}),
     ...(query.ownerId ? { ownerId: query.ownerId } : {}),
@@ -1703,11 +1775,26 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
     data: { status: 'ACTIVE', lastSeenAt: new Date() },
   });
 
-  const [activeInbox, assignmentRows, eventMax, project, goals, features, workItems] = await Promise.all([
+  const goalSelect = { id: true, title: true, description: true, priority: true, status: true, sortOrder: true };
+  const featureSelect = { id: true, goalId: true, title: true, description: true, status: true, priority: true, sortOrder: true };
+  const workItemSelect = {
+    id: true,
+    goalId: true,
+    featureId: true,
+    title: true,
+    description: true,
+    workType: true,
+    status: true,
+    priority: true,
+    ownerId: true,
+  };
+  const isLeadRuntime = member.role === 'LEAD_AGENT';
+
+  const [activeInbox, assignmentRows, eventMax, project, activeGoals, backlogGoals, features, workItems, goalStatusRows, workItemStatusRows] = await Promise.all([
     prisma.projectInboxItem.findMany({
       where: {
         projectId: input.projectId,
-        status: { in: ['UNREAD', 'READ', 'ACKED'] },
+        status: { in: OPEN_INBOX_STATUSES },
         OR: [
           { targetRuntimeId: runtimeId },
           { targetMemberId: auth.token.memberId },
@@ -1720,7 +1807,7 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
       where: {
         projectId: input.projectId,
         assigneeUserId: member.userId,
-        status: { in: ['PROPOSED', 'ACTIVE', 'PAUSED'] },
+        status: { in: OPEN_ASSIGNMENT_STATUSES },
       },
       orderBy: { updatedAt: 'desc' },
       take: 10,
@@ -1734,32 +1821,50 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
       select: { id: true, name: true, summary: true, brief: true, status: true, visibility: true },
     }),
     prisma.projectGoal.findMany({
-      where: { projectId: input.projectId },
-      select: { id: true, title: true, description: true, priority: true, status: true, sortOrder: true },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      take: 25,
+      where: {
+        projectId: input.projectId,
+        status: isLeadRuntime ? { in: ACTIVE_GOAL_STATUSES } : { notIn: CLOSED_GOAL_STATUSES },
+      },
+      select: goalSelect,
+      orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      take: isLeadRuntime ? 10 : 25,
+    }),
+    prisma.projectGoal.findMany({
+      where: {
+        projectId: input.projectId,
+        status: 'OPEN',
+      },
+      select: goalSelect,
+      orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      take: isLeadRuntime ? 5 : 1,
     }),
     prisma.projectFeature.findMany({
-      where: { projectId: input.projectId },
-      select: { id: true, goalId: true, title: true, description: true, status: true, priority: true, sortOrder: true },
+      where: {
+        projectId: input.projectId,
+        status: { notIn: ['DONE', 'CANCELLED'] },
+      },
+      select: featureSelect,
       orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
       take: 25,
     }),
     prisma.projectWorkItem.findMany({
-      where: { projectId: input.projectId },
-      select: {
-        id: true,
-        goalId: true,
-        featureId: true,
-        title: true,
-        description: true,
-        workType: true,
-        status: true,
-        priority: true,
-        ownerId: true,
+      where: {
+        projectId: input.projectId,
+        status: isLeadRuntime ? { in: ATTENTION_WORK_ITEM_STATUSES } : { notIn: CLOSED_WORK_ITEM_STATUSES },
       },
-      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      select: workItemSelect,
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
       take: 25,
+    }),
+    prisma.projectGoal.groupBy({
+      by: ['status'],
+      where: { projectId: input.projectId },
+      _count: { _all: true },
+    }),
+    prisma.projectWorkItem.groupBy({
+      by: ['status'],
+      where: { projectId: input.projectId },
+      _count: { _all: true },
     }),
   ]);
 
@@ -1770,15 +1875,37 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
       })
     : [];
 
+  const goals = isLeadRuntime ? [...activeGoals, ...backlogGoals] : activeGoals;
+  const goalStatusCounts = Object.fromEntries(goalStatusRows.map((row) => [row.status, row._count._all]));
+  const workItemStatusCounts = Object.fromEntries(workItemStatusRows.map((row) => [row.status, row._count._all]));
+
   return {
     projectId: input.projectId,
     runtimeId,
     memberId: auth.token.memberId,
+    role: member.role,
     project,
     boardSnapshot: {
       goalSummaries: goals,
+      backlogGoalSummaries: isLeadRuntime ? backlogGoals : [],
       featureSummaries: features,
       workItemSummaries: workItems,
+      statusCounts: {
+        goals: goalStatusCounts,
+        workItems: workItemStatusCounts,
+      },
+    },
+    attention: {
+      mode: isLeadRuntime ? 'lead-frontier' : 'runtime-frontier',
+      openInboxCount: activeInbox.length,
+      openAssignmentCount: assignmentRows.length,
+      activeGoalCount: (goalStatusCounts.IN_PROGRESS || 0) + (goalStatusCounts.BLOCKED || 0),
+      backlogGoalCount: goalStatusCounts.OPEN || 0,
+      actionableWorkItemCount: ATTENTION_WORK_ITEM_STATUSES.reduce(
+        (total, status) => total + (workItemStatusCounts[status] || 0),
+        0,
+      ),
+      closedWorkItemCount: (workItemStatusCounts.ACCEPTED || 0) + (workItemStatusCounts.CANCELLED || 0),
     },
     activeInbox,
     assignmentSummaries: assignmentRows,

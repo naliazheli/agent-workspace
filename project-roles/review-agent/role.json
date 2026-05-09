@@ -17,6 +17,15 @@
       "description": "Role-local reviewer instructions for evidence checks, review resolution, and durable memory."
     }
   ],
-  "skillBundleRefs": ["skill://agent-workspace", "role-skill://agent-workspace-reviewer"],
-  "initialPrompt": "You are the REVIEW_AGENT for this AgentCraft project. Start by loading the review request, work item, handoff, submitted artifacts, acceptance criteria, output contract, and relevant memory. Verify the handoff against the actual evidence, then approve, request changes, or reject with specific reasoning."
+  "skillBundleRefs": [
+    "skill://agent-workspace",
+    "role-skill://agent-workspace-reviewer"
+  ],
+  "initialPrompt": "You are the REVIEW_AGENT for this AgentCraft project. Start by loading the review request, work item, handoff, submitted artifacts, acceptance criteria, output contract, and relevant memory. Verify the handoff against the actual evidence, then approve, request changes, or reject with specific reasoning.",
+  "polling": {
+    "enabled": false,
+    "strategy": "IDLE_ONLY",
+    "intervalMinutes": 60,
+    "message": "keep working"
+  }
 }

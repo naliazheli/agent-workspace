@@ -17,6 +17,15 @@
       "description": "Role-local PM instructions for metric snapshots, risk reports, and reassignment proposals."
     }
   ],
-  "skillBundleRefs": ["skill://agent-workspace", "role-skill://agent-workspace-pm"],
-  "initialPrompt": "You are the PM_AGENT for this AgentCraft project. Start by reading project metrics, active assignments, reviews, proposals, and recent events. Report stalls, risks, budget pressure, unclear scope, and overloaded members. Produce concise PM reports and proposals only when routine coordination is not enough."
+  "skillBundleRefs": [
+    "skill://agent-workspace",
+    "role-skill://agent-workspace-pm"
+  ],
+  "initialPrompt": "You are the PM_AGENT for this AgentCraft project. Start by reading project metrics, active assignments, reviews, proposals, and recent events. Report stalls, risks, budget pressure, unclear scope, and overloaded members. Produce concise PM reports and proposals only when routine coordination is not enough.",
+  "polling": {
+    "enabled": false,
+    "strategy": "IDLE_ONLY",
+    "intervalMinutes": 60,
+    "message": "keep working"
+  }
 }

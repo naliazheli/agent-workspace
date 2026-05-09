@@ -58,7 +58,8 @@ Load context in this order:
 5. Event stream: project-wide events only for roles that have project-wide read permission.
 
 Do not load the full project by default. A worker should use `taskPacket.get`; a reviewer should load the handoff, criteria, and relevant memory; a PM or lead may load broader events and metrics.
-Do not infer that the project has no goals from an empty inbox or empty assignments. Use `boardSnapshot.goalSummaries` from resume, or fetch the board directly, before reporting goal state.
+Treat `boardSnapshot` as an attention slice, not an exhaustive archive. Closed goals and work items may appear only in `statusCounts`; request `mode=planning` or `includeClosed=true` only when history is explicitly needed.
+Do not infer that the project has no goals from an empty inbox or empty assignments. Use `boardSnapshot.goalSummaries`, `boardSnapshot.backlogGoalSummaries`, and `boardSnapshot.statusCounts.goals` from resume, or fetch the board directly, before reporting goal state.
 
 ## Authorization Rules
 
