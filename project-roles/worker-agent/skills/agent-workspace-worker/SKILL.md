@@ -26,11 +26,12 @@ Use `$agent-workspace` first. Workers should not read the full project unless th
 5. Load the task packet or item detail and verify objective, acceptance criteria, output contract, dependencies, and allowed files/systems.
 6. Source `/opt/data/AGENT_WORKSPACE_RUNTIME.env` before shell/API work and check for required project globals. External credentials and resources are exposed as `PROJECT_GLOBAL_<KEY>` plus common aliases such as `GITHUB_TOKEN`; do not read or request secret values from chat.
 7. If a required credential/resource is missing, stop that execution path and report the exact missing project global key as a blocker for the lead/owner. Do not fabricate credentials or attempt the external action anyway.
-8. If the packet or item contains `projectFiles` or `workItem.inputPacket.projectFiles`, read those files before analysis or edits.
-9. If the packet includes an assignment id or the latest instruction names one, mark your own assignment `ACTIVE` through the host runtime helper before substantive work.
-10. Start a run when the run API/tool is available, execute the task, and log meaningful progress or blockers.
-11. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
-12. Submit `handoff.submit` with what changed, how it was verified, residual risks, and reviewer instructions. After the handoff, mark your own assignment `COMPLETED` through the assignment runtime helper so the work item moves to `IN_REVIEW`; final completion is `ACCEPTED` and is set by review or an authorized lead/owner update, not by the worker approving its own work.
+8. If the item is unclear, add a work item comment through the host runtime helper with JSON `{ "content": "@owner ..." }` or send an agent-workspace question message that mentions the owner; include the exact decision needed, then stop that unclear path rather than guessing.
+9. If the packet or item contains `projectFiles` or `workItem.inputPacket.projectFiles`, read those files before analysis or edits.
+10. If the packet includes an assignment id or the latest instruction names one, mark your own assignment `ACTIVE` through the host runtime helper before substantive work. If you self-selected an unassigned item, first claim it with the host runtime helper and use the returned assignment id.
+11. Start a run when the run API/tool is available, execute the task, and log meaningful progress or blockers.
+12. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
+13. Submit `handoff.submit` with what changed, how it was verified, residual risks, and reviewer instructions. After the handoff, mark your own assignment `COMPLETED` through the assignment runtime helper so the work item moves to `IN_REVIEW`; final completion is `ACCEPTED` and is set by review or an authorized lead/owner update, not by the worker approving its own work.
 
 ## Idle Work Discovery
 
@@ -49,9 +50,10 @@ Do not steal, reassign, or overwrite another agent's work. If every visible item
 When self-selecting an item without an assignment packet:
 
 - State that it is a self-selected unassigned item.
-- Create or update a run with the `workItemId` when the API/tool is available; leave `assignmentId` empty rather than inventing one.
-- Keep all artifacts, logs, and handoff tied to the chosen `workItemId`.
-- If an `assignment.claim` or equivalent claim API is available and the item permits it, claim before implementation; otherwise continue with the item only inside the worker authorization boundary.
+- Call `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/runtime-claim` with `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN` before implementation.
+- Use the returned `assignment.id` and `updateEndpoint`; if claim fails, stop that item and report the reason rather than working around the assignment model.
+- Create or update a run with both the `workItemId` and the claimed `assignmentId` when the API/tool is available.
+- Keep all artifacts, logs, comments, and handoff tied to the chosen `workItemId` and claimed `assignmentId`.
 
 ## Assignment Packet Contract
 
@@ -68,6 +70,30 @@ If a field is missing, do not stall by default. Infer the minimum safe value fro
 ## Assignment Status Updates
 
 Workers should not use broad work item status updates for their handoff. Use the host runtime helper with `AIFACTORY_RUNTIME_TOKEN` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env`:
+
+Self-claim an eligible idle item before implementation:
+
+```bash
+. /opt/data/AGENT_WORKSPACE_RUNTIME.env
+python3 - <<'PY'
+import json, os, urllib.request
+
+base = os.environ["AIFACTORY_API_BASE_URL"]
+token = os.environ["AIFACTORY_RUNTIME_TOKEN"]
+project_id = os.environ["AGENT_WORKSPACE_PROJECT_ID"]
+work_item_id = "<workItemId>"
+body = json.dumps({"objective": "Claim this item for execution"}).encode()
+req = urllib.request.Request(
+    f"{base}/projects/{project_id}/work-items/{work_item_id}/assignments/runtime-claim",
+    data=body,
+    method="POST",
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+)
+print(urllib.request.urlopen(req).read().decode())
+PY
+```
+
+Then mark the returned assignment active:
 
 ```bash
 . /opt/data/AGENT_WORKSPACE_RUNTIME.env
