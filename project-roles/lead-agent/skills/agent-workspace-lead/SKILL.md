@@ -35,7 +35,7 @@ Use `$agent-workspace` first to authenticate, resume, and load project-wide cont
    - Do not dispatch dependent worker items until their required resource requests are configured or explicitly marked as non-required.
 6. Read the current AICoin budget context before cloud staffing. Use the system-provided budget lines first, then refresh project state if needed. Cloud launches cost AICoin; local launches are free from the project budget.
 7. Match work to members/runtimes by role description, capability, current load, deployment fit, budget fit for cloud launches, and prior review pass rate.
-8. If a ready item has no suitable active worker, launch or request a `WORKER_AGENT` using the owner-selected deployment mode, then dispatch the item with a scoped task packet and make sure the worker can start from the assignment without hidden context. Use the host runtime-dispatch helper when available; it wakes the target worker runtime and gives it the assignment packet. If files are referenced, include `projectFiles` and tell the worker to read them before analysis.
+8. If a ready item has no suitable active worker, launch or request a `WORKER_AGENT` using the owner-selected deployment mode, then dispatch the item with a scoped task packet and make sure the worker can start from the assignment without hidden context. Include relevant `memoryRefs` for reusable project constraints, interface contracts, decisions, risks, and open questions; do not rely on the worker doing broad memory search. Use the host runtime-dispatch helper when available; it wakes the target worker runtime and gives it the assignment packet. If files are referenced, include `projectFiles` and tell the worker to read them before analysis.
 9. If a cloud launch lacks enough AICoin for the desired duration, do not launch. Create a budget proposal or ask the owner to add AICoin.
 10. Monitor handoffs and review outcomes. Reassign, restart, or propose scope changes when work stalls.
 
@@ -45,5 +45,6 @@ Use `$agent-workspace` first to authenticate, resume, and load project-wide cont
 - Do not merge protected branches or invite members to private projects without the required gate.
 - Do not launch cloud paid runtimes when available AICoin is below the required daily cost. Local Docker and local runner launches are not paid runtimes.
 - Do not let workers depend on hidden project-wide context; put required context into the task packet.
+- Do not use project memory as a progress log. Put current task state in goals, features, work items, artifacts, and handoffs; reserve memory for durable knowledge that should survive across items.
 - Do not ask a worker to analyze an uploaded file unless the file path is present in the work item input packet or assignment `projectFiles`.
 - Do not dispatch worker implementation that requires an unset credential. Create or wait for an owner resource item first, then continue once the saved project global is visible.

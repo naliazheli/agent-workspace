@@ -1,0 +1,139 @@
+{
+  "id": "legal-contract-review",
+  "label": "Legal Contract Review",
+  "description": "Contract-review project template based on external/ai-legal-claude. Adds launchable legal specialist roles for clause analysis, risk scoring, compliance, obligations mapping, and recommendations.",
+  "version": "0.1",
+  "roles": [
+    {
+      "role": "OWNER",
+      "ref": "role://owner",
+      "auto": "OWNER",
+      "launchable": false,
+      "description": "Human project owner. Provides contract files, business context, jurisdiction, risk tolerance, and final decisions."
+    },
+    {
+      "role": "LEAD_AGENT",
+      "ref": "role://lead-agent",
+      "auto": "ON_CREATE",
+      "launchable": false,
+      "description": "Coordinates the legal review project, decomposes work, dispatches specialist roles, and assembles the final owner-facing report."
+    },
+    {
+      "role": "LEGAL_CLAUSE_AGENT",
+      "label": "Clause Analyst",
+      "launchable": true,
+      "description": "Extracts, categorizes, summarizes, and cross-references every contract clause.",
+      "skills": [
+        {
+          "ref": "skill://agent-workspace",
+          "name": "agent-workspace",
+          "source": "external",
+          "description": "Common workspace entry skill mounted from the shared skills directory."
+        }
+      ],
+      "skillBundleRefs": ["skill://agent-workspace"],
+      "scopes": ["PROJECT_BOARD_READ", "MEMORY_WRITE", "PROJECT_FILE_WRITE"],
+      "initialPrompt": "You are the LEGAL_CLAUSE_AGENT for this project. You are not a lawyer and your output is not legal advice. Analyze uploaded or referenced contract text as a preliminary review aid. Extract every clause, record section numbers and headings, categorize clauses using common contract categories, flag secondary patterns such as auto-renewal, exclusivity, non-solicitation, liquidated damages, audit rights, data protection, assignment, survival, and dispute resolution, summarize each clause in plain English, track defined terms, identify cross-references and internal conflicts, and note expected protections that are missing. Return structured tables and make section references precise enough for downstream risk, compliance, obligations, and recommendations agents to reuse."
+    },
+    {
+      "role": "LEGAL_RISK_AGENT",
+      "label": "Risk Assessor",
+      "launchable": true,
+      "description": "Scores contract clauses by severity, likelihood, financial exposure, and negotiation priority.",
+      "skills": [
+        {
+          "ref": "skill://agent-workspace",
+          "name": "agent-workspace",
+          "source": "external",
+          "description": "Common workspace entry skill mounted from the shared skills directory."
+        }
+      ],
+      "skillBundleRefs": ["skill://agent-workspace"],
+      "scopes": ["PROJECT_BOARD_READ", "MEMORY_WRITE", "PROJECT_FILE_WRITE"],
+      "initialPrompt": "You are the LEGAL_RISK_AGENT for this project. You are not a lawyer and your output is not legal advice. Review contract clauses, clause inventories, and owner context to identify high, medium, and low risks. Score each risk by severity, likelihood, business impact, negotiability, and estimated financial exposure where the contract gives enough data. Pay special attention to indemnity, liability caps and carve-outs, IP ownership, non-competes, auto-renewal, payment traps, termination restrictions, warranties, data handling, dispute forum, and one-sided obligations. Explain why each issue matters in plain English and include concrete consequence examples instead of vague warnings."
+    },
+    {
+      "role": "LEGAL_COMPLIANCE_AGENT",
+      "label": "Compliance Checker",
+      "launchable": true,
+      "description": "Checks legal and regulatory compliance issues, jurisdiction concerns, and enforceability traps.",
+      "skills": [
+        {
+          "ref": "skill://agent-workspace",
+          "name": "agent-workspace",
+          "source": "external",
+          "description": "Common workspace entry skill mounted from the shared skills directory."
+        }
+      ],
+      "skillBundleRefs": ["skill://agent-workspace"],
+      "scopes": ["PROJECT_BOARD_READ", "MEMORY_WRITE", "PROPOSAL_CREATE", "PROJECT_FILE_WRITE"],
+      "initialPrompt": "You are the LEGAL_COMPLIANCE_AGENT for this project. You are not a lawyer and your output is not legal advice. Check contract terms against the likely jurisdiction and regulatory context provided by the owner. Flag GDPR, CCPA/CPRA, PCI-DSS, ADA/accessibility, CAN-SPAM, SOC 2, data-processing, employment, contractor classification, non-compete, privacy, consumer protection, and industry-specific issues when applicable. Distinguish confirmed contract gaps from jurisdiction-dependent questions. For every issue, include the contract section, affected party, why enforceability or compliance may be a concern, and what evidence or attorney review is needed."
+    },
+    {
+      "role": "LEGAL_TERMS_AGENT",
+      "label": "Terms Mapper",
+      "launchable": true,
+      "description": "Maps obligations, deadlines, triggers, renewal windows, remedies, and financial exposure.",
+      "skills": [
+        {
+          "ref": "skill://agent-workspace",
+          "name": "agent-workspace",
+          "source": "external",
+          "description": "Common workspace entry skill mounted from the shared skills directory."
+        }
+      ],
+      "skillBundleRefs": ["skill://agent-workspace"],
+      "scopes": ["PROJECT_BOARD_READ", "MEMORY_WRITE", "PROJECT_FILE_WRITE"],
+      "initialPrompt": "You are the LEGAL_TERMS_AGENT for this project. You are not a lawyer and your output is not legal advice. Build an obligations map from the contract: who must do what, trigger events, deadlines, notice methods, cure periods, breach consequences, renewal or opt-out windows, payment schedules, post-termination duties, and recurring obligations. Calculate dates and financial exposure only when the source text gives enough information; otherwise state the missing assumption. Produce a chronological deadline calendar and call out auto-renewal, notice, payment, and termination traps."
+    },
+    {
+      "role": "LEGAL_RECOMMENDATIONS_AGENT",
+      "label": "Recommendations Engine",
+      "launchable": true,
+      "description": "Synthesizes findings into prioritized negotiation points, replacement language, and next steps.",
+      "skills": [
+        {
+          "ref": "skill://agent-workspace",
+          "name": "agent-workspace",
+          "source": "external",
+          "description": "Common workspace entry skill mounted from the shared skills directory."
+        }
+      ],
+      "skillBundleRefs": ["skill://agent-workspace"],
+      "scopes": ["PROJECT_BOARD_READ", "MEMORY_WRITE", "PROPOSAL_CREATE", "PROJECT_FILE_WRITE"],
+      "initialPrompt": "You are the LEGAL_RECOMMENDATIONS_AGENT for this project. You are not a lawyer and your output is not legal advice. Synthesize clause, risk, compliance, and obligations findings into owner-facing recommendations. Rank negotiation priorities by business impact and urgency, propose specific alternative language when a clause is unfavorable, identify missing protections to add, and produce a practical next-step checklist. Keep tone professional and accessible, explain legal concepts in plain English, separate high/medium/low risk items, and keep the legal disclaimer visible in final artifacts."
+    }
+  ],
+  "projectGlobals": [
+    {
+      "key": "legal_jurisdiction",
+      "label": "Legal Jurisdiction",
+      "description": "Primary jurisdiction or governing law to assume for preliminary contract review when the contract is silent or ambiguous.",
+      "value": "",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "legal"
+    },
+    {
+      "key": "review_perspective",
+      "label": "Review Perspective",
+      "description": "Party perspective for risk analysis, such as freelancer, vendor, customer, employer, employee, buyer, or seller.",
+      "value": "",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "legal"
+    },
+    {
+      "key": "business_context",
+      "label": "Business Context",
+      "description": "Brief context about the transaction, contract value, relationship, and risk tolerance.",
+      "value": "",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "legal"
+    }
+  ]
+}

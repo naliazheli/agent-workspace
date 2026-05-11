@@ -15,6 +15,8 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  projectMemoriesCreated ProjectMemory[] @relation("ProjectMemoryCreator")
+
   @@map("users")
 }
 
@@ -34,7 +36,26 @@ model Project {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  memories      ProjectMemory[]
+  globalSecrets ProjectGlobalSecret[]
+
   @@map("projects")
+}
+
+model ProjectGlobalSecret {
+  id             String   @id @default(uuid())
+  projectId      String
+  key            String   @db.VarChar(100)
+  encryptedValue String   @db.Text
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, key])
+  @@index([projectId])
+  @@map("project_global_secrets")
 }
 
 model ProjectMember {
@@ -172,6 +193,26 @@ model ProjectReview {
   @@index([projectId, status, createdAt])
   @@index([assignmentId])
   @@map("project_reviews")
+}
+
+model ProjectMemory {
+  id               String   @id @default(uuid())
+  projectId        String
+  memoryType       String   @db.VarChar(50)
+  title            String?
+  content          String   @db.Text
+  summary          String?  @db.Text
+  metadata         Json?
+  sourceArtifactId String?
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdByUser User    @relation("ProjectMemoryCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, memoryType, createdAt])
+  @@map("project_memories")
 }
 
 model ProjectProposal {

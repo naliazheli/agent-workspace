@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import jwt from 'jsonwebtoken';
@@ -15,6 +15,9 @@ const envSchema = z.object({
   AGENT_WORKSPACE_INTEGRATION_KEY: z.string().optional(),
   AGENT_WORKSPACE_JWT_SECRET: z.string().min(1),
   AGENT_WORKSPACE_TOKEN_TTL_SECONDS: z.coerce.number().default(3600),
+  PROJECT_GLOBAL_SECRET_KEY: z.string().optional(),
+  PROJECT_SECRET_ENCRYPTION_KEY: z.string().optional(),
+  WALLET_ENCRYPTION_KEY: z.string().optional(),
   PROJECT_STORAGE_ACCESS_KEY: z.string().optional(),
   PROJECT_STORAGE_SECRET_KEY: z.string().optional(),
   PROJECT_STORAGE_REGION: z.string().optional(),
@@ -286,6 +289,41 @@ const createReviewSchema = z.object({
   details: z.record(z.any()).optional(),
 });
 
+const memoryTypeSchema = z.enum(['DECISION', 'CONSTRAINT', 'FACT', 'RISK', 'OPEN_QUESTION', 'INTERFACE_CONTRACT']);
+
+const memoryListQuerySchema = z.object({
+  memoryType: memoryTypeSchema.optional(),
+  type: memoryTypeSchema.optional(),
+  q: z.string().trim().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+const createMemorySchema = z.object({
+  memoryType: memoryTypeSchema,
+  title: z.string().trim().max(191).optional(),
+  content: z.string().trim().min(1),
+  summary: z.string().trim().optional(),
+  sourceArtifactId: z.string().trim().optional(),
+  metadata: z.record(z.any()).optional(),
+  createdByUserId: z.string().trim().optional(),
+});
+
+const projectGlobalSchema = z.object({
+  key: z.string().trim().min(1).max(100),
+  label: z.string().trim().optional().nullable(),
+  description: z.string().trim().optional().nullable(),
+  value: z.union([z.string(), z.number(), z.boolean()]).optional().nullable(),
+  isSecret: z.boolean().default(true),
+  required: z.boolean().default(true),
+  createTaskOnMissing: z.boolean().default(true),
+  category: z.string().trim().optional().nullable(),
+});
+
+const updateProjectGlobalsSchema = z.object({
+  globals: z.array(projectGlobalSchema).default([]),
+  updatedByUserId: z.string().trim().optional(),
+});
+
 const ingestExternalEventSchema = z.object({
   source: z.string().trim().min(1),
   type: z.string().trim().min(1),
@@ -340,6 +378,157 @@ function getProjectGithubUrl(settings) {
 
   const githubUrl = settings.githubUrl;
   return typeof githubUrl === 'string' && githubUrl.trim() ? githubUrl.trim() : null;
+}
+
+function projectSecretEncryptionKey() {
+  const keyHex =
+    env.PROJECT_GLOBAL_SECRET_KEY ||
+    env.PROJECT_SECRET_ENCRYPTION_KEY ||
+    env.WALLET_ENCRYPTION_KEY ||
+    '';
+  const normalized = keyHex.trim();
+  if (!normalized) {
+    return null;
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(normalized)) {
+    throw badRequest('Project secret encryption key must be a 64-character hex string');
+  }
+  return Buffer.from(normalized, 'hex');
+}
+
+function encryptProjectGlobalValue(value) {
+  const encryptionKey = projectSecretEncryptionKey();
+  if (!encryptionKey) {
+    return `plain:${value}`;
+  }
+
+  const iv = randomBytes(16);
+  const cipher = createCipheriv('aes-256-gcm', encryptionKey, iv);
+  let encrypted = cipher.update(value, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+}
+
+function decryptProjectGlobalValue(encryptedValue) {
+  if (!encryptedValue) return '';
+  if (encryptedValue.startsWith('plain:')) {
+    return encryptedValue.slice(6);
+  }
+
+  const encryptionKey = projectSecretEncryptionKey();
+  if (!encryptionKey) {
+    throw badRequest('Project secret encryption key is not configured');
+  }
+
+  const [ivHex, authTagHex, ciphertext] = encryptedValue.split(':');
+  if (!ivHex || !authTagHex || !ciphertext) {
+    throw badRequest('Stored project global value is malformed');
+  }
+  const decipher = createDecipheriv('aes-256-gcm', encryptionKey, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+  let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+function getProjectGlobalVariables(settings = {}) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return [];
+  }
+  const globals = Array.isArray(settings.projectGlobals) ? settings.projectGlobals : [];
+  return globals
+    .map((entry) => {
+      const providedValue = Boolean(entry && typeof entry === 'object' && Object.prototype.hasOwnProperty.call(entry, 'value'));
+      return {
+        key: typeof entry?.key === 'string' ? entry.key.trim() : '',
+        label: typeof entry?.label === 'string' && entry.label.trim() ? entry.label.trim() : null,
+        description: typeof entry?.description === 'string' && entry.description.trim() ? entry.description.trim() : null,
+        value: typeof entry?.value === 'string' ? entry.value : entry?.value == null ? null : String(entry.value),
+        providedValue,
+        isSecret: Boolean(entry?.isSecret),
+        required: entry?.required !== false,
+        createTaskOnMissing: entry?.createTaskOnMissing !== false,
+        category: typeof entry?.category === 'string' && entry.category.trim() ? entry.category.trim() : null,
+      };
+    })
+    .filter((entry) => entry.key);
+}
+
+function globalsForStoredSettings(globals) {
+  return globals.map((entry) => ({
+    key: entry.key,
+    label: entry.label || entry.key,
+    description: entry.description || null,
+    isSecret: Boolean(entry.isSecret),
+    required: entry.required !== false,
+    createTaskOnMissing: entry.createTaskOnMissing !== false,
+    category: entry.category || null,
+  }));
+}
+
+function sanitizeProjectGlobals(globals, { includeValues = false } = {}) {
+  return globals.map((entry) => ({
+    key: entry.key,
+    label: entry.label || entry.key,
+    description: entry.description || null,
+    isSecret: Boolean(entry.isSecret),
+    required: entry.required !== false,
+    createTaskOnMissing: entry.createTaskOnMissing !== false,
+    category: entry.category || null,
+    configured: Boolean(entry.value),
+    ...(includeValues ? { value: entry.value || '' } : {}),
+  }));
+}
+
+async function resolveProjectGlobals(projectId, settings) {
+  const configuredGlobals = getProjectGlobalVariables(settings);
+  const records = await prisma.projectGlobalSecret.findMany({
+    where: { projectId },
+    select: { key: true, encryptedValue: true, metadata: true },
+  });
+  const recordByKey = new Map(records.map((record) => [record.key, record]));
+  const metadataByKey = new Map(
+    records.map((record) => {
+      const metadata = record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata) ? record.metadata : {};
+      return [
+        record.key,
+        {
+          key: record.key,
+          label: typeof metadata.label === 'string' ? metadata.label : record.key,
+          description: typeof metadata.description === 'string' ? metadata.description : null,
+          isSecret: metadata.isSecret !== false,
+          required: metadata.required !== false,
+          createTaskOnMissing: metadata.createTaskOnMissing !== false,
+          category: typeof metadata.category === 'string' ? metadata.category : null,
+        },
+      ];
+    }),
+  );
+  const allKeys = new Set([...configuredGlobals.map((entry) => entry.key), ...records.map((record) => record.key)]);
+
+  return [...allKeys].map((key) => {
+    const configured = configuredGlobals.find((entry) => entry.key === key);
+    const fromRecord = metadataByKey.get(key);
+    const record = recordByKey.get(key);
+    const value = configured?.providedValue
+      ? configured.value || ''
+      : record
+        ? decryptProjectGlobalValue(record.encryptedValue)
+        : configured?.value || '';
+    return {
+      ...(fromRecord || {}),
+      ...(configured || {}),
+      key,
+      label: configured?.label || fromRecord?.label || key,
+      description: configured?.description ?? fromRecord?.description ?? null,
+      isSecret: configured?.isSecret ?? fromRecord?.isSecret ?? true,
+      required: configured?.required ?? fromRecord?.required ?? true,
+      createTaskOnMissing: configured?.createTaskOnMissing ?? fromRecord?.createTaskOnMissing ?? true,
+      category: configured?.category ?? fromRecord?.category ?? null,
+      value,
+    };
+  });
 }
 
 function storageConfig() {
@@ -771,6 +960,42 @@ function runtimeMetadataFromAuth(auth) {
   };
 }
 
+function parseMemoryCandidates(candidates) {
+  const allowedTypes = new Set(['DECISION', 'CONSTRAINT', 'FACT', 'RISK', 'OPEN_QUESTION', 'INTERFACE_CONTRACT']);
+  return (Array.isArray(candidates) ? candidates : [])
+    .map((candidate, index) => ({
+      index,
+      memoryType: typeof candidate?.memoryType === 'string' ? candidate.memoryType : candidate?.type,
+      title: typeof candidate?.title === 'string' ? candidate.title.trim() : null,
+      content: typeof candidate?.content === 'string' ? candidate.content.trim() : '',
+      summary: typeof candidate?.summary === 'string' ? candidate.summary.trim() : null,
+      metadata: candidate?.metadata && typeof candidate.metadata === 'object' && !Array.isArray(candidate.metadata)
+        ? candidate.metadata
+        : {},
+    }))
+    .filter((candidate) => allowedTypes.has(candidate.memoryType) && candidate.content)
+    .slice(0, 10);
+}
+
+function memoryCandidatesFromArtifact(artifact, reviewDetails) {
+  const metadata = artifact?.metadata && typeof artifact.metadata === 'object' && !Array.isArray(artifact.metadata)
+    ? artifact.metadata
+    : {};
+  const details = reviewDetails && typeof reviewDetails === 'object' && !Array.isArray(reviewDetails)
+    ? reviewDetails
+    : {};
+  if (Array.isArray(details.memoryCandidates)) {
+    return parseMemoryCandidates(details.memoryCandidates);
+  }
+
+  const candidates = parseMemoryCandidates(metadata.memoryCandidates);
+  if (Array.isArray(details.approvedMemoryCandidateIndexes)) {
+    const approvedIndexes = new Set(details.approvedMemoryCandidateIndexes.map((value) => Number(value)));
+    return candidates.filter((candidate) => approvedIndexes.has(candidate.index));
+  }
+  return candidates;
+}
+
 app.setErrorHandler((error, _request, reply) => {
   const statusCode = error.statusCode || (error instanceof TosServerError ? error.statusCode : undefined) || 500;
   reply.status(statusCode).send({
@@ -1088,6 +1313,7 @@ app.get('/v1/projects/:projectId', async (request) => {
   ]);
 
   const settings = project.settings && typeof project.settings === 'object' ? project.settings : {};
+  const projectGlobals = await resolveProjectGlobals(projectId, settings);
 
   return {
     projectId: project.id,
@@ -1107,9 +1333,129 @@ app.get('/v1/projects/:projectId', async (request) => {
       openAssignmentCount,
       openBlockerCount,
     },
+    projectGlobals: sanitizeProjectGlobals(projectGlobals),
     source: settings.source ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
+  };
+});
+
+app.get('/v1/projects/:projectId/globals', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_GLOBAL_READ' });
+  const project = await getProjectOrThrow(projectId);
+  const settings = project.settings && typeof project.settings === 'object' ? project.settings : {};
+  const query = request.query ?? {};
+  const includeValues = auth.type === 'host' || query.includeValues === true || query.includeValues === 'true';
+  const globals = await resolveProjectGlobals(projectId, settings);
+
+  return {
+    projectId,
+    globals: sanitizeProjectGlobals(globals, { includeValues }),
+  };
+});
+
+app.put('/v1/projects/:projectId/globals', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_GLOBAL_WRITE' });
+  const input = updateProjectGlobalsSchema.parse(request.body ?? {});
+  const project = await getProjectOrThrow(projectId);
+  const actorUserId = await actorUserIdFromAuth(projectId, auth, input.updatedByUserId);
+  const globals = input.globals
+    .map((entry) => ({
+      key: entry.key,
+      label: entry.label || entry.key,
+      description: entry.description || null,
+      value: entry.value == null ? '' : String(entry.value),
+      isSecret: Boolean(entry.isSecret),
+      required: entry.required !== false,
+      createTaskOnMissing: entry.createTaskOnMissing !== false,
+      category: entry.category || null,
+    }))
+    .filter((entry) => entry.key);
+  const desiredKeys = globals.map((entry) => entry.key);
+
+  const existingSettings = project.settings && typeof project.settings === 'object' && !Array.isArray(project.settings)
+    ? project.settings
+    : {};
+  const nextSettings = {
+    ...existingSettings,
+    projectGlobals: globalsForStoredSettings(globals),
+  };
+  if (!globals.length) {
+    delete nextSettings.projectGlobals;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (desiredKeys.length) {
+      await tx.projectGlobalSecret.deleteMany({
+        where: {
+          projectId,
+          key: { notIn: desiredKeys },
+        },
+      });
+    } else {
+      await tx.projectGlobalSecret.deleteMany({ where: { projectId } });
+    }
+
+    for (const global of globals) {
+      if (!global.value) {
+        await tx.projectGlobalSecret.deleteMany({
+          where: { projectId, key: global.key },
+        });
+        continue;
+      }
+
+      const metadata = {
+        label: global.label || global.key,
+        description: global.description || null,
+        isSecret: Boolean(global.isSecret),
+        required: global.required !== false,
+        createTaskOnMissing: global.createTaskOnMissing !== false,
+        category: global.category || null,
+      };
+      await tx.projectGlobalSecret.upsert({
+        where: {
+          projectId_key: {
+            projectId,
+            key: global.key,
+          },
+        },
+        create: {
+          id: randomUUID(),
+          projectId,
+          key: global.key,
+          encryptedValue: encryptProjectGlobalValue(global.value),
+          metadata,
+        },
+        update: {
+          encryptedValue: encryptProjectGlobalValue(global.value),
+          metadata,
+        },
+      });
+    }
+
+    await tx.project.update({
+      where: { id: projectId },
+      data: { settings: nextSettings },
+    });
+
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'PROJECT_GLOBALS_UPDATED',
+      refType: 'PROJECT_GLOBALS',
+      refId: projectId,
+      actorUserId,
+      payload: {
+        keys: globals.map((global) => global.key),
+      },
+    });
+  });
+
+  const resolved = await resolveProjectGlobals(projectId, nextSettings);
+  return {
+    projectId,
+    globals: sanitizeProjectGlobals(resolved, { includeValues: true }),
   };
 });
 
@@ -2177,6 +2523,97 @@ app.delete('/v1/projects/:projectId/files', async (request) => {
   return { projectId, path, key, deleted: true };
 });
 
+app.get('/v1/projects/:projectId/memories', async (request) => {
+  const { projectId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'MEMORY_READ' });
+  const query = memoryListQuerySchema.parse(request.query ?? {});
+  await getProjectOrThrow(projectId);
+
+  const q = query.q?.trim();
+  const memoryType = query.memoryType || query.type;
+  const memories = await prisma.projectMemory.findMany({
+    where: {
+      projectId,
+      ...(memoryType ? { memoryType } : {}),
+      ...(q
+        ? {
+            OR: [
+              { title: { contains: q } },
+              { content: { contains: q } },
+              { summary: { contains: q } },
+            ],
+          }
+        : {}),
+    },
+    include: {
+      createdByUser: { select: { id: true, email: true, displayName: true, role: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: query.limit,
+  });
+
+  return {
+    projectId,
+    memories,
+  };
+});
+
+app.post('/v1/projects/:projectId/memories', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'MEMORY_WRITE' });
+  const input = createMemorySchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+  if (input.sourceArtifactId) {
+    const artifact = await prisma.projectArtifact.findFirst({
+      where: { id: input.sourceArtifactId, projectId },
+      select: { id: true },
+    });
+    if (!artifact) {
+      throw badRequest('Source artifact not found in project');
+    }
+  }
+  const actorUserId = await actorUserIdFromAuth(projectId, auth, input.createdByUserId);
+
+  const memory = await prisma.$transaction(async (tx) => {
+    const created = await tx.projectMemory.create({
+      data: {
+        id: randomUUID(),
+        projectId,
+        memoryType: input.memoryType,
+        title: input.title ?? null,
+        content: input.content,
+        summary: input.summary ?? null,
+        metadata: {
+          ...(input.metadata ?? {}),
+          ...(runtimeMetadataFromAuth(auth) ? { runtime: runtimeMetadataFromAuth(auth) } : {}),
+        },
+        sourceArtifactId: input.sourceArtifactId ?? null,
+        createdByUserId: actorUserId,
+      },
+      include: {
+        createdByUser: { select: { id: true, email: true, displayName: true, role: true } },
+      },
+    });
+
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'MEMORY_WRITTEN',
+      refType: 'MEMORY',
+      refId: created.id,
+      actorUserId,
+      payload: {
+        memoryType: created.memoryType,
+        title: created.title,
+        sourceArtifactId: created.sourceArtifactId,
+      },
+    });
+
+    return created;
+  });
+
+  return memory;
+});
+
 app.get('/v1/projects/:projectId/inbox', async (request) => {
   const { projectId } = request.params;
   const auth = await requireHostOrRuntime(request, { projectId });
@@ -2413,6 +2850,15 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
     throw badRequest('reviewerMemberId is required for host review submission');
   }
 
+  const reviewArtifact = input.artifactId
+    ? await prisma.projectArtifact.findFirst({
+        where: { id: input.artifactId, projectId },
+      })
+    : null;
+  if (input.artifactId && !reviewArtifact) {
+    throw badRequest('Artifact not found in project');
+  }
+
   const reviewThread = await prisma.projectThread.findFirst({
     where: {
       projectId,
@@ -2465,6 +2911,46 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
         where: { id: assignment.workItemId },
         data: { status: nextWorkItemStatus },
       });
+    }
+
+    if (input.decision === 'APPROVED' && reviewArtifact) {
+      const candidates = memoryCandidatesFromArtifact(reviewArtifact, input.details);
+      for (const candidate of candidates) {
+        const createdMemory = await tx.projectMemory.create({
+          data: {
+            id: randomUUID(),
+            projectId,
+            memoryType: candidate.memoryType,
+            title: candidate.title,
+            content: candidate.content,
+            summary: candidate.summary,
+            metadata: {
+              ...candidate.metadata,
+              source: 'approved-handoff-memory-candidate',
+              sourceArtifactId: reviewArtifact.id,
+              workItemId: reviewArtifact.workItemId ?? assignment.workItemId,
+              reviewId: createdReview.id,
+              candidateIndex: candidate.index,
+            },
+            sourceArtifactId: reviewArtifact.id,
+            createdByUserId: reviewerMember.userId,
+          },
+        });
+
+        await appendProjectEvent(tx, {
+          projectId,
+          type: 'MEMORY_WRITTEN',
+          refType: 'MEMORY',
+          refId: createdMemory.id,
+          actorUserId: reviewerMember.userId,
+          payload: {
+            memoryType: createdMemory.memoryType,
+            title: createdMemory.title,
+            sourceArtifactId: createdMemory.sourceArtifactId,
+            source: 'approved-handoff-memory-candidate',
+          },
+        });
+      }
     }
 
     let generatedInboxItemId = null;

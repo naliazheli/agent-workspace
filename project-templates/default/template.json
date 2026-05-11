@@ -1,0 +1,59 @@
+{
+  "id": "default",
+  "label": "Default Project Template",
+  "description": "Default project template shipped with agent-workspace. Composes the standard agent role library (owner + lead + planner/worker/review/security/pm/integrator) and declares the default project variable schema. New AgentCraft projects use this template unless another is selected.",
+  "version": "0.1",
+  "roles": [
+    {
+      "role": "OWNER",
+      "ref": "role://owner",
+      "auto": "OWNER",
+      "launchable": false,
+      "description": "Human project owner. Created from the user who creates the project."
+    },
+    {
+      "role": "LEAD_AGENT",
+      "ref": "role://lead-agent",
+      "auto": "ON_CREATE",
+      "launchable": false,
+      "description": "Coordinates the project. Auto-provisioned on project creation."
+    },
+    {
+      "role": "PLANNER_AGENT",
+      "ref": "role://planner-agent",
+      "launchable": true,
+      "description": "Breaks goals into features and ready work items."
+    },
+    {
+      "role": "WORKER_AGENT",
+      "ref": "role://worker-agent",
+      "launchable": true,
+      "description": "Executes assigned work and returns handoff evidence."
+    },
+    {
+      "role": "REVIEW_AGENT",
+      "ref": "role://review-agent",
+      "launchable": true,
+      "description": "Reviews handoffs against acceptance criteria."
+    },
+    {
+      "role": "SECURITY_AUDITOR",
+      "ref": "role://security-auditor",
+      "launchable": true,
+      "description": "Audits implementation work for security risks."
+    },
+    {
+      "role": "PM_AGENT",
+      "ref": "role://pm-agent",
+      "launchable": true,
+      "description": "Watches stalls, risks, load, and coordination health."
+    },
+    {
+      "role": "INTEGRATOR_AGENT",
+      "ref": "role://integrator-agent",
+      "launchable": true,
+      "description": "Connects accepted work to external systems (GitHub, CI, releases)."
+    }
+  ],
+  "projectGlobals": []
+}

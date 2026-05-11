@@ -41,8 +41,8 @@ For a runtime container, read these values from the environment or the mounted c
   Cloud runtimes should use the public or private service domain, for example `https://agent-workspace.agentcraft.work` or the unified API domain used by the host product.
 - `AGENT_WORKSPACE_TOKEN`: short-lived runtime bearer token minted from the active access grant. This may become stale in long-lived runtimes.
 - `/opt/data/AGENT_WORKSPACE_CONTEXT.json`: project id, member id, runtime id, role, scopes, skill bundle refs, the resolved workspace base URL, and the latest refreshed runtime token.
-- `/opt/data/AGENT_WORKSPACE_RUNTIME.env`: shell-ready exports for the latest `AGENT_WORKSPACE_BASE_URL`, `AGENT_WORKSPACE_TOKEN`, and any saved project-global resources.
-- Project-global resources are exported as `PROJECT_GLOBAL_<KEY>`. Common aliases may also exist for well-known credentials, for example `GITHUB_TOKEN` and `GH_TOKEN`.
+- `/opt/data/AGENT_WORKSPACE_RUNTIME.env`: shell-ready exports for the latest `AGENT_WORKSPACE_BASE_URL`, `AGENT_WORKSPACE_TOKEN`, and workspace-owned project-global resources.
+- Project-global resources are stored in `agent-workspace`, can be read through `GET /v1/projects/{projectId}/globals`, and are exported into runtime env files as `PROJECT_GLOBAL_<KEY>`. Common aliases may also exist for well-known credentials, for example `GITHUB_TOKEN` and `GH_TOKEN`.
 - Owner resource work items carry `inputPacket.resourceRequest`. When the owner fills `value` and finishes the item, the host saves it as a project global and injects it into future runtime env files.
 
 Never assume Docker service discovery names such as `agent-workspace` exist outside a local compose network.
@@ -54,7 +54,7 @@ Load context in this order:
 1. Inbox: urgent action items, `STOP_WORK`, `REWORK_REQUEST`, `REVIEW_REQUEST`, assignment dispatches.
 2. Assignment or role target: active assignment, review, goal, or metric request.
 3. Task packet or board slice: the narrowest packet that can answer the work.
-4. Linked memory: referenced memory entries and only additional memory found by targeted search.
+4. Linked memory: packet-provided `memoryRefs` first, then only additional memory found by targeted search when the packet is missing required historical context.
 5. Event stream: project-wide events only for roles that have project-wide read permission.
 
 Do not load the full project by default. A worker should use `taskPacket.get`; a reviewer should load the handoff, criteria, and relevant memory; a PM or lead may load broader events and metrics.
@@ -106,6 +106,9 @@ Common runtime endpoints:
 - `GET {base}/v1/projects/{projectId}/files/read?path=...`
 - `POST {base}/v1/projects/{projectId}/files/write`
 - `POST {base}/v1/projects/{projectId}/files/upload`
+- `GET {base}/v1/projects/{projectId}/globals?includeValues=true` (requires `PROJECT_GLOBAL_READ`)
+- `GET {base}/v1/projects/{projectId}/memories?q=...&memoryType=...` (requires `MEMORY_READ`)
+- `POST {base}/v1/projects/{projectId}/memories` (requires `MEMORY_WRITE`)
 - `POST {base}/v1/projects/{projectId}/features`
 - `POST {base}/v1/projects/{projectId}/work-items`
 - `GET {base}/v1/projects/{projectId}/work-items`
@@ -134,6 +137,32 @@ Use `READY` for work items that are dispatchable, `IN_PROGRESS` while execution 
 For a missing owner-controlled resource, create a separate owner-owned work item instead of embedding the blocker inside a worker task. Set `ownerId` to the project owner user id, not the owner member id; use a high priority, and put the request under `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, and `value: ""`. Use one atomic resource item per project-global key, with stable lowercase snake_case keys. Do not infer a vendor, website, social network, API provider, platform-specific key set, or platform-specific skill from a generic resource key or generic task; keep labels and descriptions neutral unless the owner explicitly named that platform. Downstream work should depend on this item or wait until the corresponding `PROJECT_GLOBAL_<KEY>` is available.
 
 `runtime.resume` returns the runtime-targeted inbox, active assignment summaries, linked thread summaries, and an event cursor. Workers should treat `ASSIGNMENT_DISPATCH` inbox items and assignment `contextPacket` values as their primary task packet.
+
+## Project Memory And Globals
+
+Project memory is owned by `agent-workspace`. Use it for durable, reusable facts, decisions, constraints, risks, open questions, and interface contracts that future agents should be able to retrieve. Do not write transient logs, long raw transcripts, secrets, task-local progress, or short-lived download URLs into memory.
+
+Current task state belongs in goals, features, work items, artifacts, reviews, and handoffs. Memory is for cross-item continuity. For worker execution, the preferred flow is:
+
+1. Lead/host dispatch includes relevant `memoryRefs` in the assignment packet.
+2. Worker reads those refs before implementation and avoids broad memory search by default.
+3. Worker proposes durable discoveries as `memoryCandidates` in handoff artifact metadata.
+4. Reviewer approval persists accepted candidates to project memory.
+
+Common memory types are `DECISION`, `CONSTRAINT`, `FACT`, `RISK`, `OPEN_QUESTION`, and `INTERFACE_CONTRACT`.
+
+Shell helpers are available in this skill bundle:
+
+```bash
+. /opt/data/skills/agent-workspace/scripts/project-memory.sh
+project-memory-search "api contract" INTERFACE_CONTRACT
+project-memory-write DECISION "Use workspace storage" "Durable project files and memory are owned by agent-workspace."
+project-global-list
+```
+
+Use `project-memory-write` only for explicit lead/reviewer/owner flows or narrow administrative writes. Routine worker discoveries should go through review-gated `memoryCandidates`.
+
+If the helper script is not mounted, call the HTTP endpoints directly with `AGENT_WORKSPACE_BASE_URL`, `AGENT_WORKSPACE_PROJECT_ID`, and `AGENT_WORKSPACE_TOKEN` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env`.
 
 ## Project Shared Resources
 

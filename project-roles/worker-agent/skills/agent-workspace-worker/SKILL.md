@@ -13,9 +13,9 @@ Use `$agent-workspace` first. Workers should not read the full project unless th
 
 ## Reads And Writes
 
-- Reads: own `TaskPacket`, linked thread/messages, referenced memory, assignment-specific context, project board summaries, assignment summaries, and the narrow work item fields needed to confirm an assigned or self-selected item.
-- Writes: runs, logs, artifacts, external links, handoff, narrow memory entries discovered during work.
-- Core tools: `assignment.claim`, `taskPacket.get`, `run.start`, `run.log`, `run.finish`, `artifact.submit`, `externalLink.create`, `handoff.submit`, `memory.write`.
+- Reads: own `TaskPacket`, linked thread/messages, packet-provided `memoryRefs`, assignment-specific context, project board summaries, assignment summaries, and the narrow work item fields needed to confirm an assigned or self-selected item.
+- Writes: runs, logs, artifacts, external links, handoff, and proposed `memoryCandidates` in handoff artifact metadata when work reveals durable cross-item knowledge.
+- Core tools: `assignment.claim`, `taskPacket.get`, `run.start`, `run.log`, `run.finish`, `artifact.submit`, `externalLink.create`, `handoff.submit`.
 
 ## Workflow
 
@@ -24,14 +24,15 @@ Use `$agent-workspace` first. Workers should not read the full project unless th
 3. If no actionable assignment exists, inspect the project board/work items and assignment summaries for idle work discovery.
 4. Select at most one eligible item, preferring `READY` items before `DRAFT` items. Use `DRAFT` only when scope, acceptance criteria, and dependencies are clear enough to execute safely.
 5. Load the task packet or item detail and verify objective, acceptance criteria, output contract, dependencies, and allowed files/systems.
-6. Source `/opt/data/AGENT_WORKSPACE_RUNTIME.env` before shell/API work and check for required project globals. External credentials and resources are exposed as `PROJECT_GLOBAL_<KEY>` plus common aliases such as `GITHUB_TOKEN`; do not read or request secret values from chat.
-7. If a required credential/resource is missing, stop that execution path and report the exact missing project global key as a blocker for the lead/owner. Do not fabricate credentials or attempt the external action anyway.
-8. If the item is unclear, add a work item comment through the host runtime helper with JSON `{ "content": "@owner ..." }` or send an agent-workspace question message that mentions the owner; include the exact decision needed, then stop that unclear path rather than guessing.
-9. If the packet or item contains `projectFiles` or `workItem.inputPacket.projectFiles`, read those files before analysis or edits.
-10. If the packet includes an assignment id or the latest instruction names one, mark your own assignment `ACTIVE` through the host runtime helper before substantive work. If you self-selected an unassigned item, first claim it with the host runtime helper and use the returned assignment id.
-11. Start a run when the run API/tool is available, execute the task, and log meaningful progress or blockers.
-12. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
-13. Submit `handoff.submit` with what changed, how it was verified, residual risks, and reviewer instructions. After the handoff, mark your own assignment `COMPLETED` through the assignment runtime helper so the work item moves to `IN_REVIEW`; final completion is `ACCEPTED` and is set by review or an authorized lead/owner update, not by the worker approving its own work.
+6. Read and respect `memoryRefs` in the task packet before implementation. Do not run broad memory searches by default; ask the lead for a refreshed packet only when required historical context is missing.
+7. Source `/opt/data/AGENT_WORKSPACE_RUNTIME.env` before shell/API work and check for required project globals. External credentials and resources are exposed as `PROJECT_GLOBAL_<KEY>` plus common aliases such as `GITHUB_TOKEN`; do not read or request secret values from chat.
+8. If a required credential/resource is missing, stop that execution path and report the exact missing project global key as a blocker for the lead/owner. Do not fabricate credentials or attempt the external action anyway.
+9. If the item is unclear, add a work item comment through the host runtime helper with JSON `{ "content": "@owner ..." }` or send an agent-workspace question message that mentions the owner; include the exact decision needed, then stop that unclear path rather than guessing.
+10. If the packet or item contains `projectFiles` or `workItem.inputPacket.projectFiles`, read those files before analysis or edits.
+11. If the packet includes an assignment id or the latest instruction names one, mark your own assignment `ACTIVE` through the host runtime helper before substantive work. If you self-selected an unassigned item, first claim it with the host runtime helper and use the returned assignment id.
+12. Start a run when the run API/tool is available, execute the task, and log meaningful progress or blockers.
+13. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
+14. Submit `handoff.submit` with what changed, how it was verified, residual risks, reviewer instructions, and any proposed `memoryCandidates` for review. After the handoff, mark your own assignment `COMPLETED` through the assignment runtime helper so the work item moves to `IN_REVIEW`; final completion is `ACCEPTED` and is set by review or an authorized lead/owner update, not by the worker approving its own work.
 
 ## Idle Work Discovery
 
@@ -62,6 +63,7 @@ When the lead or host dispatches work, expect the packet to contain:
 - `objective`: the concrete result requested from this worker.
 - `workItem.id`, `workItem.title`, `workItem.scopeBrief`, `workItem.acceptanceCriteria`, `workItem.inputPacket`, `workItem.outputContract`, `workItem.dependsOn`, and `workItem.concurrencyMode`.
 - `projectFiles` or `workItem.inputPacket.projectFiles` when the lead linked uploaded project files with `@path` mentions.
+- `memoryRefs` when the lead or host found relevant durable project memory for this assignment.
 - `goal` and `feature` summaries when relevant.
 - `workerStartChecklist`: the required execution loop for this assignment.
 
@@ -147,6 +149,23 @@ Residual risks: <known risks or "none known">
 Reviewer notes: <what the reviewer should inspect first>
 ```
 
+If the work discovered durable cross-item knowledge, include proposed memory candidates in the submitted handoff artifact metadata, not as direct memory writes:
+
+```json
+{
+  "memoryCandidates": [
+    {
+      "memoryType": "INTERFACE_CONTRACT",
+      "title": "Runtime globals are owned by agent-workspace",
+      "summary": "Project-global values are read from agent-workspace and exported as PROJECT_GLOBAL_*.",
+      "content": "Project-global resources are stored in agent-workspace. Host products may proxy owner updates, but runtimes should read globals through the workspace API or refreshed runtime env."
+    }
+  ]
+}
+```
+
+Use candidates only for reusable decisions, constraints, interface contracts, risks, open questions, or facts that future work items should know. Do not nominate routine progress, temporary TODOs, raw logs, secrets, or download URLs.
+
 ## Current Runtime Notes
 
 - The local Hermes runtime may receive the assignment context directly in the incoming app message before the richer `taskPacket.get` and `run.*` APIs are fully wired.
@@ -191,4 +210,4 @@ curl -s -X POST "https://api.github.com/repos/<owner>/<repo>/pulls" \
 - Do not silently abandon work; finish through handoff, release, or explicit blocker.
 - Do not review your own output.
 - Stop immediately on `STOP_WORK`, grant revocation, assignment cancellation, or stale packet warning.
-- Keep memory writes factual and reusable; do not dump transient logs into memory.
+- Do not write project memory directly unless the assignment explicitly authorizes it. Prefer review-gated `memoryCandidates` in handoff metadata for durable knowledge discovered during worker execution.
