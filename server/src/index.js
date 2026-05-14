@@ -65,6 +65,7 @@ const runtimeTokenSchema = z.object({
   memberId: z.string(),
   grantId: z.string(),
   scopes: z.array(z.string()).default([]),
+  capabilityBundleRefs: z.array(z.string()).default([]),
   exp: z.number().optional(),
 });
 
@@ -129,7 +130,51 @@ const issueGrantSchema = z.object({
   reason: z.string().trim().optional(),
   expiresAt: z.string().datetime().optional(),
   skillBundleRefs: z.array(z.string()).optional(),
+  capabilityBundleRefs: z.array(z.string()).optional(),
   issuedByMemberId: z.string().trim().optional(),
+});
+
+const shareTargetSchema = z.object({
+  principalType: z.enum(['USER', 'PROJECT', 'WORKSPACE']),
+  principalId: z.string().trim().min(1),
+});
+
+const capabilityBundleManifestSchema = z.object({
+  ref: z.string().trim().min(1).max(191),
+  name: z.string().trim().min(1).max(191).optional(),
+  version: z.string().trim().max(80).optional(),
+  description: z.string().trim().optional(),
+  surfaces: z
+    .object({
+      skills: z.array(z.string()).default([]),
+      tools: z.array(z.string()).default([]),
+      mcpServers: z.array(z.string()).default([]),
+      hooks: z.array(z.string()).default([]),
+    })
+    .partial()
+    .default({}),
+  requiredScopes: z.array(z.string()).default([]),
+  requiredProjectGlobals: z.array(z.string()).default([]),
+  runtimeCompatibility: z.record(z.any()).optional(),
+  shareContext: z.record(z.any()).optional(),
+}).passthrough();
+
+const capabilityBundleInstallSchema = z.object({
+  manifest: capabilityBundleManifestSchema,
+  discoverability: z.enum(['PRIVATE', 'UNLISTED', 'PROJECT_VISIBLE']).default('PRIVATE'),
+  shareTargets: z.array(shareTargetSchema).default([]),
+  status: z.enum(['ACTIVE', 'DISABLED']).default('ACTIVE'),
+  installedByMemberId: z.string().trim().optional(),
+});
+
+const capabilityBundleShareSchema = z.object({
+  discoverability: z.enum(['PRIVATE', 'UNLISTED', 'PROJECT_VISIBLE']),
+  shareTargets: z.array(shareTargetSchema).default([]),
+});
+
+const capabilityBundleListQuerySchema = z.object({
+  status: z.enum(['ACTIVE', 'DISABLED', 'ALL']).default('ACTIVE'),
+  ref: z.string().trim().optional(),
 });
 
 const resumeRuntimeSchema = z.object({
@@ -956,6 +1001,7 @@ function runtimeMetadataFromAuth(auth) {
     memberId: auth.token.memberId,
     grantId: auth.token.grantId,
     scopes: auth.token.scopes,
+    capabilityBundleRefs: auth.token.capabilityBundleRefs,
     stampedAt: new Date().toISOString(),
   };
 }
@@ -1338,6 +1384,119 @@ app.get('/v1/projects/:projectId', async (request) => {
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };
+});
+
+app.get('/v1/projects/:projectId/capability-bundles', async (request) => {
+  const { projectId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_READ_BASIC' });
+  await getProjectOrThrow(projectId);
+  const query = capabilityBundleListQuerySchema.parse(request.query ?? {});
+  const items = await prisma.projectCapabilityBundleInstallation.findMany({
+    where: {
+      projectId,
+      ...(query.status === 'ALL' ? {} : { status: query.status }),
+      ...(query.ref ? { bundleRef: query.ref } : {}),
+    },
+    orderBy: [{ installedAt: 'desc' }],
+  });
+  return { items };
+});
+
+app.post('/v1/projects/:projectId/capability-bundles', async (request) => {
+  await requireHost(request);
+  const { projectId } = request.params;
+  const input = capabilityBundleInstallSchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+
+  const installed = await prisma.$transaction(async (tx) => {
+    const record = await tx.projectCapabilityBundleInstallation.upsert({
+      where: {
+        projectId_bundleRef: {
+          projectId,
+          bundleRef: input.manifest.ref,
+        },
+      },
+      create: {
+        id: randomUUID(),
+        projectId,
+        bundleRef: input.manifest.ref,
+        manifestSnapshot: input.manifest,
+        discoverability: input.discoverability,
+        shareTargets: input.shareTargets,
+        status: input.status,
+        installedByMemberId: input.installedByMemberId ?? null,
+      },
+      update: {
+        manifestSnapshot: input.manifest,
+        discoverability: input.discoverability,
+        shareTargets: input.shareTargets,
+        status: input.status,
+        installedByMemberId: input.installedByMemberId ?? null,
+      },
+    });
+
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'CAPABILITY_BUNDLE_INSTALLED',
+      refType: 'CAPABILITY_BUNDLE',
+      refId: record.bundleRef,
+      actorUserId: null,
+      payload: {
+        bundleRef: record.bundleRef,
+        discoverability: record.discoverability,
+        status: record.status,
+        requiredScopes: input.manifest.requiredScopes ?? [],
+        requiredProjectGlobals: input.manifest.requiredProjectGlobals ?? [],
+      },
+    });
+
+    return record;
+  });
+
+  return installed;
+});
+
+app.patch('/v1/projects/:projectId/capability-bundles/share', async (request) => {
+  await requireHost(request);
+  const { projectId } = request.params;
+  const query = capabilityBundleListQuerySchema.pick({ ref: true }).parse(request.query ?? {});
+  if (!query.ref) {
+    throw badRequest('Capability bundle ref is required');
+  }
+  const input = capabilityBundleShareSchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const record = await tx.projectCapabilityBundleInstallation.update({
+      where: {
+        projectId_bundleRef: {
+          projectId,
+          bundleRef: query.ref,
+        },
+      },
+      data: {
+        discoverability: input.discoverability,
+        shareTargets: input.shareTargets,
+      },
+    });
+
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'CAPABILITY_BUNDLE_SHARE_UPDATED',
+      refType: 'CAPABILITY_BUNDLE',
+      refId: record.bundleRef,
+      actorUserId: null,
+      payload: {
+        bundleRef: record.bundleRef,
+        discoverability: record.discoverability,
+        shareTargets: record.shareTargets ?? [],
+      },
+    });
+
+    return record;
+  });
+
+  return updated;
 });
 
 app.get('/v1/projects/:projectId/globals', async (request) => {
@@ -2039,6 +2198,7 @@ app.post('/v1/projects/:projectId/access-grants', async (request) => {
         grantType: 'CLOUD_AGENT',
         scopes: input.scopes,
         skillBundleRefs: input.skillBundleRefs ?? [],
+        capabilityBundleRefs: input.capabilityBundleRefs ?? [],
         status: 'ACTIVE',
         reason: input.reason ?? null,
         issuedByMemberId: input.issuedByMemberId ?? null,
@@ -2056,6 +2216,8 @@ app.post('/v1/projects/:projectId/access-grants', async (request) => {
         memberId: member.id,
         runtimeId: runtime.id,
         scopes: input.scopes,
+        skillBundleRefs: input.skillBundleRefs ?? [],
+        capabilityBundleRefs: input.capabilityBundleRefs ?? [],
       },
     });
 
@@ -2066,6 +2228,8 @@ app.post('/v1/projects/:projectId/access-grants', async (request) => {
     grantId: grant.id,
     status: grant.status,
     scopes: grant.scopes,
+    skillBundleRefs: grant.skillBundleRefs ?? [],
+    capabilityBundleRefs: grant.capabilityBundleRefs ?? [],
     expiresAt: grant.expiresAt,
   };
 });
@@ -2093,6 +2257,7 @@ app.post('/v1/access-grants/:grantId/tokens', async (request) => {
       memberId: grant.memberId,
       grantId: grant.id,
       scopes: Array.isArray(grant.scopes) ? grant.scopes : [],
+      capabilityBundleRefs: Array.isArray(grant.capabilityBundleRefs) ? grant.capabilityBundleRefs : [],
     },
     env.AGENT_WORKSPACE_JWT_SECRET,
     { expiresIn },

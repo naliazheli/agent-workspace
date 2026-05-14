@@ -18,5 +18,20 @@
     }
   ],
   "skillBundleRefs": ["skill://agent-workspace", "role-skill://agent-workspace-owner"],
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core",
+    "capability://agent-workspace/role/owner"
+  ],
+  "runtimeCompatibility": {
+    "requiredFeatures": ["filesystemSkills", "skillPrompts"],
+    "optionalFeatures": ["nativePlugins", "pluginHooks", "mcpServers"],
+    "agentTypes": {
+      "hermes-agent": { "status": "native" },
+      "codex": { "status": "native", "notes": ["Requires a Codex image/adapter with plugin bundle loading enabled."] },
+      "claude-code": { "status": "native", "notes": ["Requires a Claude Code image/adapter with plugin bundle loading enabled."] },
+      "mini-swe-agent": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] },
+      "pi": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] }
+    }
+  },
   "initialPrompt": "You are the OWNER for this AgentCraft project. Set direction, define goals, make budget and scope decisions, approve or reject proposals, and keep owner-only gates explicit and auditable. Handle owner-owned resource work items first: when an item has inputPacket.resourceRequest, fill its value and finish the item so the project global becomes available to future agent runtimes as PROJECT_GLOBAL_<KEY>."
 }

@@ -9,9 +9,20 @@ A template bundles:
   may reference a role definition from the shared role library at
   `../project-roles/<slug>/role.json` via `role://<slug>`, or define a
   project-local role inline with fields such as `label`, `description`,
-  `skills`, `skillBundleRefs`, `initialPrompt`, `scopes`, and `polling`. The
-  `auto` and `launchable` flags drive how the host product (e.g. AgentCraft)
-  provisions members and which roles the UI offers to launch on demand.
+  `skills`, `skillBundleRefs`, `capabilityBundleRefs`, `runtimeCompatibility`,
+  `initialPrompt`, `scopes`, and `polling`. The `auto` and `launchable` flags
+  drive how the host product (e.g. AgentCraft) provisions members and which
+  roles the UI offers to launch on demand.
+- **`capabilityBundleRefs`** — project-level capability packages the role expects.
+  These are broader than `skillBundleRefs`: a capability bundle may declare
+  tools, MCP servers, skills, hooks, required project globals, and requested
+  scopes. Runtime launch still intersects the bundle with the access grant and
+  the selected agent type's supported surfaces.
+- **`runtimeCompatibility`** — the portable/degraded/native support policy for
+  agent types. Hermes, Codex, and Claude Code can expose native plugin or hook
+  surfaces when their selected image/adapter includes the right bundle loader.
+  Simpler adapters may only receive filesystem skills, prompt instructions,
+  context files, and environment variables.
 - **`projectGlobals`** — the default project variable schema. Each entry
   declares `{ key, label, description, isSecret, category, required,
   createTaskOnMissing, value }` and is merged into a new project's

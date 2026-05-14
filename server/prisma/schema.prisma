@@ -38,6 +38,7 @@ model Project {
 
   memories      ProjectMemory[]
   globalSecrets ProjectGlobalSecret[]
+  capabilityBundleInstallations ProjectCapabilityBundleInstallation[]
 
   @@map("projects")
 }
@@ -56,6 +57,25 @@ model ProjectGlobalSecret {
   @@unique([projectId, key])
   @@index([projectId])
   @@map("project_global_secrets")
+}
+
+model ProjectCapabilityBundleInstallation {
+  id                  String   @id @default(uuid())
+  projectId           String   @map("project_id")
+  bundleRef           String   @map("bundle_ref") @db.VarChar(191)
+  manifestSnapshot    Json     @map("manifest_snapshot")
+  discoverability     String   @default("PRIVATE")
+  shareTargets        Json?    @map("share_targets")
+  status              String   @default("ACTIVE")
+  installedByMemberId String?  @map("installed_by_member_id")
+  installedAt         DateTime @default(now()) @map("installed_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade, map: "fk_pcb_project")
+
+  @@unique([projectId, bundleRef], map: "uniq_pcb_project_bundle")
+  @@index([projectId, status], map: "idx_pcb_project_status")
+  @@map("project_capability_bundle_installations")
 }
 
 model ProjectMember {
@@ -279,6 +299,7 @@ model ProjectAccessGrant {
   grantType           String   @map("grant_type")
   scopes              Json
   skillBundleRefs     Json?    @map("skill_bundle_refs")
+  capabilityBundleRefs Json?   @map("capability_bundle_refs")
   status              String
   reason              String?
   issuedByMemberId    String?  @map("issued_by_member_id")

@@ -21,6 +21,21 @@
     "skill://agent-workspace",
     "role-skill://agent-workspace-reviewer"
   ],
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core",
+    "capability://agent-workspace/role/review-agent"
+  ],
+  "runtimeCompatibility": {
+    "requiredFeatures": ["filesystemSkills", "skillPrompts"],
+    "optionalFeatures": ["nativePlugins", "pluginHooks", "mcpServers"],
+    "agentTypes": {
+      "hermes-agent": { "status": "native" },
+      "codex": { "status": "native", "notes": ["Requires a Codex image/adapter with plugin bundle loading enabled."] },
+      "claude-code": { "status": "native", "notes": ["Requires a Claude Code image/adapter with plugin bundle loading enabled."] },
+      "mini-swe-agent": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] },
+      "pi": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] }
+    }
+  },
   "initialPrompt": "You are the REVIEW_AGENT for this AgentCraft project. Start by loading the review request, work item, handoff, submitted artifacts, acceptance criteria, output contract, and relevant memory. Verify the handoff against the actual evidence, then approve, request changes, or reject with specific reasoning.",
   "polling": {
     "enabled": false,

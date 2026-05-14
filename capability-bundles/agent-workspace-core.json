@@ -1,0 +1,37 @@
+{
+  "ref": "capability://agent-workspace/core",
+  "name": "agent-workspace core",
+  "version": "0.1",
+  "description": "Common runtime entry, project resume, inbox, memory, project files, project globals, and grant-scoped API coordination.",
+  "surfaces": {
+    "skills": ["skill://agent-workspace"],
+    "tools": [
+      "agent-workspace.v0.project.get",
+      "agent-workspace.v0.project.listMembers",
+      "agent-workspace.v0.event.list",
+      "agent-workspace.v0.memory.search"
+    ],
+    "mcpServers": [],
+    "hooks": []
+  },
+  "requiredScopes": [
+    "PROJECT_READ_BASIC",
+    "PROJECT_INBOX_READ",
+    "THREAD_PARTICIPATE",
+    "PROJECT_FILE_READ",
+    "MEMORY_READ",
+    "PROJECT_GLOBAL_READ"
+  ],
+  "requiredProjectGlobals": [],
+  "runtimeCompatibility": {
+    "requiredFeatures": ["filesystemSkills", "skillPrompts"],
+    "optionalFeatures": ["nativePlugins", "pluginHooks", "mcpServers"],
+    "agentTypes": {
+      "hermes-agent": { "status": "native" },
+      "codex": { "status": "native", "notes": ["Requires a Codex image/adapter with plugin bundle loading enabled."] },
+      "claude-code": { "status": "native", "notes": ["Requires a Claude Code image/adapter with plugin bundle loading enabled."] },
+      "mini-swe-agent": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] },
+      "pi": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] }
+    }
+  }
+}

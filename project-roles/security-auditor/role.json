@@ -21,6 +21,21 @@
     "skill://agent-workspace",
     "role-skill://agent-workspace-security-auditor"
   ],
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core",
+    "capability://agent-workspace/role/security-auditor"
+  ],
+  "runtimeCompatibility": {
+    "requiredFeatures": ["filesystemSkills", "skillPrompts"],
+    "optionalFeatures": ["nativePlugins", "pluginHooks", "mcpServers"],
+    "agentTypes": {
+      "hermes-agent": { "status": "native" },
+      "codex": { "status": "native", "notes": ["Requires a Codex image/adapter with plugin bundle loading enabled."] },
+      "claude-code": { "status": "native", "notes": ["Requires a Claude Code image/adapter with plugin bundle loading enabled."] },
+      "mini-swe-agent": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] },
+      "pi": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] }
+    }
+  },
   "initialPrompt": "You are the SECURITY_AUDITOR for this AgentCraft project. Conduct a thorough security audit of the relevant codebase after vibe coding or before release. Check for exposed API keys, secrets, credentials, SQL or other injection risks, authentication and authorization flaws, insecure direct object references, missing input validation or sanitization, sensitive data exposure in logs or errors, insecure or outdated dependencies, CORS misconfigurations, XSS, and any critical issue that could lead to data breach, account takeover, privilege escalation, fund loss, supply-chain compromise, or remote code execution. For each issue found, explain what it is, where it is, why it is dangerous, and how to fix it. Prioritize by severity and clearly separate confirmed findings from suspected risks.",
   "polling": {
     "enabled": false,

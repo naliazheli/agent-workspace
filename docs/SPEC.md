@@ -47,7 +47,7 @@ Every abstraction must drive these four scenarios end-to-end:
 
 ## 4. Roles & Contracts
 
-Role is not a locked enum. It is `role + capability tags`. Agents are matched to work by capability.
+Role is not a locked enum. It is `role + capability tags + capability bundles`. Agents are matched to work by capability, but their actual authority is still the intersection of role policy, project policy, and the active `ProjectAccessGrant`.
 
 | Role | Reads | Writes | MCP tool subset | Lifecycle |
 |---|---|---|---|---|
@@ -63,6 +63,8 @@ Rules:
 - One project has exactly one OWNER and one LEAD_AGENT minimum.
 - PLANNER and INTEGRATOR are optional — Lead may absorb them.
 - "Firing" a role never deletes history; it ends the Assignment.
+- A role may declare `capabilityBundleRefs` and `runtimeCompatibility`. These are desired capability surfaces, not automatic permission. Hermes, Codex, and Claude Code can expose native plugin or hook surfaces when their selected image/adapter includes the right bundle loader; simpler adapters may receive only portable skill/prompt/context surfaces.
+- `skillBundleRefs` remain the lowest-common-denominator delivery mechanism for current runtimes. `capabilityBundleRefs` are the project/audit abstraction and should eventually subsume raw skill lists.
 
 ## 5. Four-Layer Context Abstraction
 
@@ -112,6 +114,9 @@ Entities. Fields are indicative; see `schemas/` for the canonical definitions on
 - `ProjectMemory` — structured fact (`memoryType` ∈ `DECISION | CONSTRAINT | FACT | RISK | OPEN_QUESTION | INTERFACE_CONTRACT`).
 
 ### 6.2 Coordination entities (added by this spec)
+
+- `CapabilityBundle` - manifested project capability package (`ref`, `version`, `surfaces.skills/tools/mcpServers/hooks`, `requiredScopes`, `requiredProjectGlobals`, `runtimeCompatibility`, `shareContext`). A bundle is declarative; it does not bypass authorization.
+- `ProjectCapabilityBundleInstallation` - project-installed bundle snapshot (`projectId`, `bundleRef`, `manifestSnapshot`, `discoverability`, `shareTargets`, `status`, `installedByMemberId`).
 
 - `ProjectMemberCapability` — capability tags on a member (`capability`, `level`, `source`).
 - `ProjectProposal` — unified human-approval carrier (`type`, `payload`, `approverUserIds`, `status`, `expiresAt`, …). Types: `GOAL_DEFINITION | GOAL_CHANGE | GOAL_CLOSE | GOAL_REOPEN | BUDGET_INCREASE | REASSIGN | SCOPE_CHANGE | MEMBER_INVITE`.

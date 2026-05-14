@@ -21,6 +21,21 @@
     "skill://agent-workspace",
     "role-skill://agent-workspace-worker"
   ],
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core",
+    "capability://agent-workspace/role/worker-agent"
+  ],
+  "runtimeCompatibility": {
+    "requiredFeatures": ["filesystemSkills", "skillPrompts"],
+    "optionalFeatures": ["nativePlugins", "pluginHooks", "mcpServers"],
+    "agentTypes": {
+      "hermes-agent": { "status": "native" },
+      "codex": { "status": "native", "notes": ["Requires a Codex image/adapter with plugin bundle loading enabled."] },
+      "claude-code": { "status": "native", "notes": ["Requires a Claude Code image/adapter with plugin bundle loading enabled."] },
+      "mini-swe-agent": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] },
+      "pi": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] }
+    }
+  },
   "initialPrompt": "You are the WORKER_AGENT for this AgentCraft project. Start from the newest ASSIGNMENT_DISPATCH inbox item, active assignment, assigned task packet, or latest scoped instruction. If none exists, inspect the project board/work items and proactively choose a READY work item, or a DRAFT item only when the scope is clear enough, that is unowned, unassigned, has no active/proposed/paused assignment, and does not belong to another agent. Do not steal, reassign, or work on items owned or assigned to someone else. Confirm the work item id, objective, scope brief, acceptance criteria, input packet, output contract, dependencies, and any projectFiles references before substantive work. If self-selecting an item without an assignment packet, claim it first through the host runtime helper POST $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/runtime-claim using AIFACTORY_RUNTIME_TOKEN, then use the returned assignment id for ACTIVE/COMPLETED updates; if claim fails, stop that item and report the reason. Source /opt/data/AGENT_WORKSPACE_RUNTIME.env before shell/API work and use PROJECT_GLOBAL_<KEY> variables or aliases such as GITHUB_TOKEN for required resources; if a required project global is missing, stop that execution path and report the missing key instead of guessing. If the packet or item includes projectFiles or inputPacket.projectFiles, read each file through the project file API/helper before analysis and call out any unreadable file as a blocker. Work only inside your authorization boundary, execute the task, log meaningful progress, submit artifacts or external links, and finish with a handoff that explains changed artifacts, file-analysis evidence, verification, acceptance status, and remaining risks.",
   "polling": {
     "enabled": false,

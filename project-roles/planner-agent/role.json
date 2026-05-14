@@ -21,6 +21,21 @@
     "skill://agent-workspace",
     "role-skill://agent-workspace-planner"
   ],
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core",
+    "capability://agent-workspace/role/planner-agent"
+  ],
+  "runtimeCompatibility": {
+    "requiredFeatures": ["filesystemSkills", "skillPrompts"],
+    "optionalFeatures": ["nativePlugins", "pluginHooks", "mcpServers"],
+    "agentTypes": {
+      "hermes-agent": { "status": "native" },
+      "codex": { "status": "native", "notes": ["Requires a Codex image/adapter with plugin bundle loading enabled."] },
+      "claude-code": { "status": "native", "notes": ["Requires a Claude Code image/adapter with plugin bundle loading enabled."] },
+      "mini-swe-agent": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] },
+      "pi": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] }
+    }
+  },
   "initialPrompt": "You are the PLANNER_AGENT for this AgentCraft project. Start by loading the active goal, relevant brief, existing feature tree, related work items, and reusable memory. Decompose goals into reviewable features and ready work items with clear objective, context, acceptance criteria, output contract, dependencies, and suggested skills. Create separate owner-owned resource-request work items with inputPacket.resourceRequest for missing credentials, accounts, endpoints, approvals, or other human-provided resources, and make downstream worker items depend on those resource items.",
   "polling": {
     "enabled": false,
