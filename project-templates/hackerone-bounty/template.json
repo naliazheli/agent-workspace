@@ -1,0 +1,120 @@
+{
+  "id": "hackerone-bounty",
+  "label": "HackerOne Bounty Project",
+  "description": "Turns a HackerOne scope task into a structured security testing project with scope intake, safe validation, report review, and evidence handling.",
+  "version": "0.1",
+  "roles": [
+    {
+      "role": "OWNER",
+      "ref": "role://owner",
+      "auto": "OWNER",
+      "launchable": false,
+      "description": "Human bounty owner responsible for authorization, test accounts, submission decisions, and final report approval."
+    },
+    {
+      "role": "LEAD_AGENT",
+      "ref": "role://lead-agent",
+      "auto": "ON_CREATE",
+      "launchable": false,
+      "label": "Bounty Lead",
+      "description": "Coordinates scope intake, testing sequence, evidence quality, safety gates, and report readiness.",
+      "initialPrompt": "You are the Bounty Lead for a HackerOne-derived project. On every fresh pass, read the project board and the HackerOne packet in project settings or workItem.inputPacket before dispatching. Start with READY intake and planning work; route those to PLANNER_AGENT when help is needed. Do not dispatch DRAFT security testing, review, or report work until dependencies are accepted and the owner or lead has approved a scoped non-destructive validation plan. Route SECURITY_TEST to WORKER_AGENT only after that gate, SECURITY_REVIEW to SECURITY_AUDITOR, REPORT to INTEGRATOR_AGENT, and final report QA to REVIEW_AGENT when useful. Every dispatch packet must preserve source task id/link, program handle, scope asset, required headers, out-of-scope exclusions, reward/severity guidance, report template, dependencies, and the expected handoff contract.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-lead",
+        "skill://hackerone-bounty-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/lead-agent"
+      ]
+    },
+    {
+      "role": "PLANNER_AGENT",
+      "ref": "role://planner-agent",
+      "launchable": true,
+      "label": "Scope Planner",
+      "description": "Transforms HackerOne task text, scope rules, exclusions, and reward metadata into safe test plans and ready work items.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-planner",
+        "skill://hackerone-bounty-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/planner-agent"
+      ]
+    },
+    {
+      "role": "WORKER_AGENT",
+      "ref": "role://worker-agent",
+      "launchable": true,
+      "label": "Security Tester",
+      "description": "Executes bounded, non-destructive validation steps and returns evidence, blockers, and report-ready findings.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-worker",
+        "skill://hackerone-bounty-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/worker-agent"
+      ]
+    },
+    {
+      "role": "SECURITY_AUDITOR",
+      "ref": "role://security-auditor",
+      "launchable": true,
+      "label": "Finding Validator",
+      "description": "Checks exploit validity, scope fit, severity, false-positive risk, and safe-harbor compliance before report submission.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-security-auditor",
+        "skill://hackerone-bounty-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/security-auditor"
+      ]
+    },
+    {
+      "role": "REVIEW_AGENT",
+      "ref": "role://review-agent",
+      "launchable": true,
+      "label": "Report Reviewer",
+      "description": "Reviews the final report against HackerOne fields, reproduction clarity, evidence quality, and policy constraints.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-reviewer",
+        "skill://hackerone-bounty-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/review-agent"
+      ]
+    },
+    {
+      "role": "INTEGRATOR_AGENT",
+      "ref": "role://integrator-agent",
+      "launchable": true,
+      "label": "Report Writer",
+      "description": "Assembles evidence and validation notes into a HackerOne-ready report draft without submitting externally unless the owner instructs it.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-integrator",
+        "skill://hackerone-bounty-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/integrator-agent"
+      ]
+    }
+  ],
+  "projectGlobals": [],
+  "projectFileFolders": [
+    "intake",
+    "evidence",
+    "reports",
+    "scratch"
+  ]
+}

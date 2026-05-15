@@ -19,7 +19,8 @@ project-file-list() {
   project_file_env
   local prefix="${1:-}"
   local query="${2:-}"
-  local url="$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files?limit=100"
+  local recursive="${3:-true}"
+  local url="$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files?limit=100&recursive=$recursive"
   if [ -n "$prefix" ]; then url="$url&prefix=$(project_file_urlencode "$prefix")"; fi
   if [ -n "$query" ]; then url="$url&q=$(project_file_urlencode "$query")"; fi
   curl -fsS "$url" -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN"
@@ -62,6 +63,33 @@ project-file-upload() {
     -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
     -F "path=$remote_path" \
     -F "file=@$local_path"
+}
+
+project-folder-create() {
+  project_file_env
+  local folder_path="${1:?folder path is required}"
+  node -e 'process.stdout.write(JSON.stringify({ path: process.argv[1] }))' "$folder_path" |
+    curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files/folders" \
+      -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
+      -H "Content-Type: application/json" \
+      --data-binary @-
+}
+
+project-file-delete() {
+  project_file_env
+  local file_path="${1:?path is required}"
+  local recursive="${2:-false}"
+  curl -fsS -X DELETE "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files?path=$(project_file_urlencode "$file_path")&recursive=$recursive" \
+    -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN"
+}
+
+project-file-download() {
+  project_file_env
+  local file_path="${1:?path is required}"
+  local output_path="${2:-$(basename "$file_path")}"
+  curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files/download?path=$(project_file_urlencode "$file_path")" \
+    -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
+    -o "$output_path"
 }
 
 project-file-download-url() {

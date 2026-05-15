@@ -9,7 +9,15 @@
       "agent-workspace.v0.project.get",
       "agent-workspace.v0.project.listMembers",
       "agent-workspace.v0.event.list",
-      "agent-workspace.v0.memory.search"
+      "agent-workspace.v0.memory.search",
+      "agent-workspace.v0.projectFile.list",
+      "agent-workspace.v0.projectFile.search",
+      "agent-workspace.v0.projectFile.read",
+      "agent-workspace.v0.projectFile.write",
+      "agent-workspace.v0.projectFile.upload",
+      "agent-workspace.v0.projectFile.download",
+      "agent-workspace.v0.projectFile.delete",
+      "agent-workspace.v0.projectFolder.create"
     ],
     "mcpServers": [],
     "hooks": []

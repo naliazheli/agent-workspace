@@ -104,8 +104,10 @@ Common runtime endpoints:
 - `GET {base}/v1/projects/{projectId}/board`
 - `GET {base}/v1/projects/{projectId}/files`
 - `GET {base}/v1/projects/{projectId}/files/read?path=...`
+- `GET {base}/v1/projects/{projectId}/files/download?path=...`
 - `POST {base}/v1/projects/{projectId}/files/write`
 - `POST {base}/v1/projects/{projectId}/files/upload`
+- `POST {base}/v1/projects/{projectId}/files/folders`
 - `GET {base}/v1/projects/{projectId}/globals?includeValues=true` (requires `PROJECT_GLOBAL_READ`)
 - `GET {base}/v1/projects/{projectId}/memories?q=...&memoryType=...` (requires `MEMORY_READ`)
 - `POST {base}/v1/projects/{projectId}/memories` (requires `MEMORY_WRITE`)
@@ -184,6 +186,8 @@ project-file-search docs spec
 project-file-read docs/brief.md
 project-file-write notes/status.md ./local-status.md
 project-file-upload ./report.pdf reports/report.pdf
+project-folder-create "待审核"
+project-file-download reports/report.pdf ./report.pdf
 project-file-download-url reports/report.pdf
 ```
 

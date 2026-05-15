@@ -208,12 +208,22 @@ const projectFileListQuerySchema = z.object({
   q: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   cursor: z.string().optional(),
+  recursive: booleanQuerySchema.default(true),
 });
 
 const projectFilePathQuerySchema = z.object({
   path: z.string().trim().min(1),
   encoding: z.enum(['text', 'base64']).optional(),
   expiresIn: z.coerce.number().int().min(60).max(86400).default(3600),
+});
+
+const projectFileDeleteQuerySchema = z.object({
+  path: z.string().trim().min(1),
+  recursive: booleanQuerySchema.default(false),
+});
+
+const projectFolderCreateSchema = z.object({
+  path: z.string().trim().min(1),
 });
 
 const workItemListQuerySchema = z.object({
@@ -627,6 +637,17 @@ function normalizeProjectFilePath(input, { allowEmpty = false } = {}) {
   return normalized;
 }
 
+function normalizeProjectFolderPath(input, { allowEmpty = false } = {}) {
+  const normalized = normalizeProjectFilePath(input, { allowEmpty });
+  if (!normalized) return '';
+  return normalized.replace(/\/+$/, '');
+}
+
+function normalizeProjectFolderPrefix(input) {
+  const folder = normalizeProjectFolderPath(input, { allowEmpty: true });
+  return folder ? `${folder}/` : '';
+}
+
 function projectStoragePrefix(projectId) {
   const config = storageConfig();
   const folder = normalizeProjectFilePath(config.folder, { allowEmpty: true });
@@ -647,6 +668,23 @@ function normalizeUploadPath(inputPath, originalName) {
   const raw = String(inputPath || '').trim();
   if (!raw) return fallback;
   return normalizeProjectFilePath(raw.endsWith('/') ? `${raw}${fallback}` : raw);
+}
+
+const PROJECT_FOLDER_MARKER_NAME = '.folder';
+
+function projectFolderMarkerPath(folderPath) {
+  const folder = normalizeProjectFolderPath(folderPath);
+  return `${folder}/${PROJECT_FOLDER_MARKER_NAME}`;
+}
+
+function projectFileName(filePath) {
+  return normalizeProjectFilePath(filePath).split('/').filter(Boolean).pop() || 'download';
+}
+
+function contentDispositionForDownload(filePath) {
+  const filename = projectFileName(filePath).replace(/"/g, '');
+  const asciiFilename = filename.replace(/[^\x20-\x7E]/g, '_') || 'download';
+  return `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 function isProbablyText(contentType, filePath) {
@@ -2487,7 +2525,9 @@ app.get('/v1/projects/:projectId/files', async (request) => {
   const query = projectFileListQuerySchema.parse(request.query ?? {});
   await getProjectOrThrow(projectId);
 
-  const prefix = `${projectStoragePrefix(projectId)}${normalizeProjectFilePath(query.prefix, { allowEmpty: true })}`;
+  const requestedFolder = normalizeProjectFolderPath(query.prefix, { allowEmpty: true });
+  const requestedPrefix = requestedFolder ? `${requestedFolder}/` : '';
+  const prefix = `${projectStoragePrefix(projectId)}${requestedPrefix}`;
   const client = getProjectStorageClient();
   const config = storageConfig();
   const listInput = {
@@ -2503,23 +2543,112 @@ app.get('/v1/projects/:projectId/files', async (request) => {
     ...listInput,
   });
   const q = (query.q || '').trim().toLowerCase();
-  const files = (output.Contents || [])
-    .map((item) => ({
+  const foldersByPath = new Map();
+  const files = [];
+  for (const item of output.Contents || []) {
+    const file = {
       path: projectFilePathFromKey(projectId, item.Key || ''),
       key: item.Key,
       size: Number(item.Size || 0),
       lastModified: item.LastModified,
       etag: item.ETag,
       downloadUrl: projectFileDownloadUrlFromPublicBase(item.Key || ''),
-    }))
-    .filter((item) => item.key && (!q || item.path.toLowerCase().includes(q)));
+    };
+    if (!file.key || !file.path) continue;
+
+    if (file.path.endsWith(`/${PROJECT_FOLDER_MARKER_NAME}`)) {
+      const folderPath = file.path.slice(0, -(`/${PROJECT_FOLDER_MARKER_NAME}`).length);
+      if (folderPath && folderPath !== requestedFolder && (!q || folderPath.toLowerCase().includes(q))) {
+        foldersByPath.set(folderPath, {
+          path: folderPath,
+          name: folderPath.split('/').pop() || folderPath,
+          key: `${projectStoragePrefix(projectId)}${folderPath}/`,
+          size: 0,
+          fileCount: 0,
+          lastModified: file.lastModified,
+        });
+      }
+      continue;
+    }
+
+    if (q && !file.path.toLowerCase().includes(q)) {
+      continue;
+    }
+
+    if (!query.recursive) {
+      const relativePath = requestedPrefix && file.path.startsWith(requestedPrefix)
+        ? file.path.slice(requestedPrefix.length)
+        : file.path;
+      const separatorIndex = relativePath.indexOf('/');
+      if (separatorIndex >= 0) {
+        const childName = relativePath.slice(0, separatorIndex);
+        const childPath = `${requestedPrefix}${childName}`;
+        const existing = foldersByPath.get(childPath) || {
+          path: childPath,
+          name: childName,
+          key: `${projectStoragePrefix(projectId)}${childPath}/`,
+          size: 0,
+          fileCount: 0,
+          lastModified: null,
+        };
+        existing.fileCount += 1;
+        existing.size += file.size || 0;
+        existing.lastModified = existing.lastModified || file.lastModified;
+        foldersByPath.set(childPath, existing);
+        continue;
+      }
+    }
+
+    files.push(file);
+  }
 
   return {
     projectId,
     authType: auth.type,
+    prefix: requestedPrefix,
+    folders: [...foldersByPath.values()].sort((a, b) => a.name.localeCompare(b.name)),
     files,
     nextCursor: output.NextContinuationToken,
     isTruncated: Boolean(output.IsTruncated),
+  };
+});
+
+app.post('/v1/projects/:projectId/files/folders', async (request) => {
+  const { projectId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_WRITE' });
+  const input = projectFolderCreateSchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+
+  const folderPath = normalizeProjectFolderPath(input.path);
+  const markerPath = projectFolderMarkerPath(folderPath);
+  const key = projectStorageKey(projectId, markerPath);
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  await client.putObject({
+    bucket: config.bucket,
+    key,
+    body: Buffer.alloc(0),
+    contentType: 'application/x-agentcraft-folder',
+  });
+
+  const actorUserId = await actorUserIdFromAuth(projectId, auth);
+  await prisma.$transaction(async (tx) => {
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'PROJECT_FOLDER_CREATED',
+      refType: 'PROJECT_FOLDER',
+      refId: folderPath,
+      actorUserId,
+      payload: { path: folderPath, markerPath, key },
+    });
+  });
+
+  return {
+    projectId,
+    path: folderPath,
+    key,
+    markerPath,
+    created: true,
   };
 });
 
@@ -2550,6 +2679,29 @@ app.get('/v1/projects/:projectId/files/read', async (request) => {
     encoding,
     content: encoding === 'base64' ? buffer.toString('base64') : buffer.toString('utf8'),
   };
+});
+
+app.get('/v1/projects/:projectId/files/download', async (request, reply) => {
+  const { projectId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_READ' });
+  const query = projectFilePathQuerySchema.parse(request.query ?? {});
+  await getProjectOrThrow(projectId);
+
+  const path = normalizeProjectFilePath(query.path);
+  const key = projectStorageKey(projectId, path);
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  const [{ data: head }, { data: object }] = await Promise.all([
+    client.headObject({ bucket: config.bucket, key }),
+    client.getObjectV2({ bucket: config.bucket, key }),
+  ]);
+  const contentType = head['content-type'] || 'application/octet-stream';
+  if (head['content-length']) {
+    reply.header('Content-Length', head['content-length']);
+  }
+  reply.header('Content-Type', contentType);
+  reply.header('Content-Disposition', contentDispositionForDownload(path));
+  return object.content;
 });
 
 app.get('/v1/projects/:projectId/files/download-url', async (request) => {
@@ -2664,28 +2816,54 @@ app.post('/v1/projects/:projectId/files/upload', async (request) => {
 app.delete('/v1/projects/:projectId/files', async (request) => {
   const { projectId } = request.params;
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_WRITE' });
-  const query = projectFilePathQuerySchema.parse(request.query ?? {});
+  const query = projectFileDeleteQuerySchema.parse(request.query ?? {});
   await getProjectOrThrow(projectId);
 
-  const path = normalizeProjectFilePath(query.path);
-  const key = projectStorageKey(projectId, path);
+  const path = query.recursive ? normalizeProjectFolderPath(query.path) : normalizeProjectFilePath(query.path);
   const client = getProjectStorageClient();
   const config = storageConfig();
-  await client.deleteObject({ bucket: config.bucket, key });
+  const deletedKeys = [];
+
+  if (query.recursive) {
+    const folderPrefix = `${projectStorageKey(projectId, path)}/`;
+    let continuationToken;
+    do {
+      const listInput = {
+        bucket: config.bucket,
+        prefix: folderPrefix,
+        maxKeys: 500,
+        listOnlyOnce: true,
+      };
+      if (continuationToken) {
+        listInput.continuationToken = continuationToken;
+      }
+      const { data: output } = await client.listObjectsType2(listInput);
+      for (const item of output.Contents || []) {
+        if (!item.Key) continue;
+        await client.deleteObject({ bucket: config.bucket, key: item.Key });
+        deletedKeys.push(item.Key);
+      }
+      continuationToken = output.NextContinuationToken;
+    } while (continuationToken);
+  } else {
+    const key = projectStorageKey(projectId, path);
+    await client.deleteObject({ bucket: config.bucket, key });
+    deletedKeys.push(key);
+  }
 
   const actorUserId = await actorUserIdFromAuth(projectId, auth);
   await prisma.$transaction(async (tx) => {
     await appendProjectEvent(tx, {
       projectId,
-      type: 'PROJECT_FILE_DELETED',
-      refType: 'PROJECT_FILE',
+      type: query.recursive ? 'PROJECT_FOLDER_DELETED' : 'PROJECT_FILE_DELETED',
+      refType: query.recursive ? 'PROJECT_FOLDER' : 'PROJECT_FILE',
       refId: path,
       actorUserId,
-      payload: { path, key },
+      payload: { path, deletedKeys },
     });
   });
 
-  return { projectId, path, key, deleted: true };
+  return { projectId, path, deletedKeys, deleted: true };
 });
 
 app.get('/v1/projects/:projectId/memories', async (request) => {

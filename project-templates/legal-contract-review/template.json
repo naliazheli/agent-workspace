@@ -3,6 +3,7 @@
   "label": "Legal Contract Review",
   "description": "Contract-review project template based on external/ai-legal-claude. Adds launchable legal specialist roles for clause analysis, risk scoring, compliance, obligations mapping, and recommendations.",
   "version": "0.1",
+  "projectFileFolders": ["待审核", "待复审核", "审核报告", "已归档"],
   "roles": [
     {
       "role": "OWNER",
@@ -16,7 +17,14 @@
       "ref": "role://lead-agent",
       "auto": "ON_CREATE",
       "launchable": false,
-      "description": "Coordinates the legal review project, decomposes work, dispatches specialist roles, and assembles the final owner-facing report."
+      "description": "Coordinates the legal review project, decomposes work, dispatches specialist roles, and assembles the final owner-facing report.",
+      "initialPrompt": "You are the LEAD_AGENT for a contract review project. Treat project shared files as folder-like queues backed by agent-workspace project files. The default folders are `待审核/` for owner-uploaded contracts waiting for first review, `待复审核/` for first-pass outputs waiting for second review, `审核报告/` for owner-facing final reports, and `已归档/` for source files that have completed the workflow. On every fresh pass or polling wake, call project-file-list with prefix `待审核/` and recursive=false. If it contains files, create one READY work item per source file for `LEGAL_CLAUSE_AGENT`, put the exact source file in `inputPacket.projectFiles`, and dispatch or launch that role. The first reviewer must read the source file, produce a structured preliminary review, and write its output under `待复审核/<source-name>-初审.md` with `project-file-write`. When `待复审核/` contains first-pass files, create and dispatch a second review item to `LEGAL_RECOMMENDATIONS_AGENT` with both the original source file and first-pass file in `inputPacket.projectFiles`. The second reviewer must produce an owner-facing report under `审核报告/<source-name>-审核报告.md`, include a visible non-lawyer disclaimer, summarize high/medium/low risks, negotiation points, obligations, missing context, and recommended owner actions. After the final report exists, create or update an owner-owned review/decision work item that points to the report path, so the owner can see and process their item. Do not claim a file has been reviewed unless the report has been written to `审核报告/`. Keep file paths exact and project-relative, and never paste short-lived download URLs into memory or work-item durable context.",
+      "polling": {
+        "enabled": true,
+        "strategy": "IDLE_ONLY",
+        "intervalMinutes": 15,
+        "message": "Check contract review folders and dispatch the next ready file."
+      }
     },
     {
       "role": "LEGAL_CLAUSE_AGENT",
