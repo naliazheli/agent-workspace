@@ -536,6 +536,22 @@ function sanitizeProjectGlobals(globals, { includeValues = false } = {}) {
   }));
 }
 
+function getProjectFileFolders(settings = {}) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return [];
+  }
+
+  const folders = Array.isArray(settings.projectFileFolders) ? settings.projectFileFolders : [];
+  return [
+    ...new Set(
+      folders
+        .filter((folder) => typeof folder === 'string' && folder.trim())
+        .map((folder) => normalizeProjectFolderPath(folder))
+        .filter(Boolean),
+    ),
+  ];
+}
+
 async function resolveProjectGlobals(projectId, settings) {
   const configuredGlobals = getProjectGlobalVariables(settings);
   const records = await prisma.projectGlobalSecret.findMany({
@@ -596,6 +612,11 @@ function storageConfig() {
     folder: env.PROJECT_STORAGE_FOLDER || env.TOS_FOLDER || '',
     publicUrl: env.PROJECT_STORAGE_PUBLIC_URL || env.TOS_PUBLIC_URL,
   };
+}
+
+function isProjectStorageConfigured() {
+  const config = storageConfig();
+  return Boolean(config.accessKeyId && config.accessKeySecret && config.bucket);
 }
 
 let projectStorageClient;
@@ -675,6 +696,72 @@ const PROJECT_FOLDER_MARKER_NAME = '.folder';
 function projectFolderMarkerPath(folderPath) {
   const folder = normalizeProjectFolderPath(folderPath);
   return `${folder}/${PROJECT_FOLDER_MARKER_NAME}`;
+}
+
+async function putProjectFolderMarker(projectId, folderPath) {
+  const normalizedFolderPath = normalizeProjectFolderPath(folderPath);
+  const markerPath = projectFolderMarkerPath(normalizedFolderPath);
+  const key = projectStorageKey(projectId, markerPath);
+  const client = getProjectStorageClient();
+  const config = storageConfig();
+  await client.putObject({
+    bucket: config.bucket,
+    key,
+    body: Buffer.alloc(0),
+    contentType: 'application/x-agentcraft-folder',
+  });
+  return { folderPath: normalizedFolderPath, markerPath, key };
+}
+
+async function initializeProjectFileFolders(projectId, actorUserId, folders) {
+  const normalizedFolders = [
+    ...new Set(
+      (folders || [])
+        .filter((folder) => typeof folder === 'string' && folder.trim())
+        .map((folder) => normalizeProjectFolderPath(folder))
+        .filter(Boolean),
+    ),
+  ];
+  if (!normalizedFolders.length) {
+    return [];
+  }
+
+  if (!isProjectStorageConfigured()) {
+    app.log.warn(
+      {
+        projectId,
+        folders: normalizedFolders,
+      },
+      'Project file folders were declared but project storage is not configured; skipping folder initialization',
+    );
+    return [];
+  }
+
+  const createdFolders = [];
+  for (const folderPath of normalizedFolders) {
+    const created = await putProjectFolderMarker(projectId, folderPath);
+    createdFolders.push(created);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const created of createdFolders) {
+      await appendProjectEvent(tx, {
+        projectId,
+        type: 'PROJECT_FOLDER_CREATED',
+        refType: 'PROJECT_FOLDER',
+        refId: created.folderPath,
+        actorUserId,
+        payload: {
+          path: created.folderPath,
+          markerPath: created.markerPath,
+          key: created.key,
+          source: 'project-template',
+        },
+      });
+    }
+  });
+
+  return createdFolders;
 }
 
 function projectFileName(filePath) {
@@ -1198,6 +1285,7 @@ app.post('/v1/projects', async (request) => {
   }
 
   const slug = await resolveUniqueSlug(input.name, input.slug);
+  const initialProjectFileFolders = getProjectFileFolders(input.settings ?? {});
 
   const project = await prisma.$transaction(async (tx) => {
     const createdProject = await tx.project.create({
@@ -1303,6 +1391,12 @@ app.post('/v1/projects', async (request) => {
     return { createdProject, ownerMember, leadMember, initialGoal };
   });
 
+  const initializedProjectFileFolders = await initializeProjectFileFolders(
+    project.createdProject.id,
+    owner.id,
+    initialProjectFileFolders,
+  );
+
   return {
     projectId: project.createdProject.id,
     slug: project.createdProject.slug,
@@ -1310,6 +1404,7 @@ app.post('/v1/projects', async (request) => {
     ownerMemberId: project.ownerMember.id,
     leadMemberId: project.leadMember?.id ?? null,
     initialGoalId: project.initialGoal?.id ?? null,
+    initializedProjectFileFolders: initializedProjectFileFolders.map((folder) => folder.folderPath),
     createdAt: project.createdProject.createdAt,
   };
 });
@@ -2523,7 +2618,7 @@ app.get('/v1/projects/:projectId/files', async (request) => {
   const { projectId } = request.params;
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_READ' });
   const query = projectFileListQuerySchema.parse(request.query ?? {});
-  await getProjectOrThrow(projectId);
+  const project = await getProjectOrThrow(projectId);
 
   const requestedFolder = normalizeProjectFolderPath(query.prefix, { allowEmpty: true });
   const requestedPrefix = requestedFolder ? `${requestedFolder}/` : '';
@@ -2602,6 +2697,42 @@ app.get('/v1/projects/:projectId/files', async (request) => {
     files.push(file);
   }
 
+  for (const configuredFolderPath of getProjectFileFolders(project.settings ?? {})) {
+    if (configuredFolderPath === requestedFolder) {
+      continue;
+    }
+    if (requestedPrefix && !configuredFolderPath.startsWith(requestedPrefix)) {
+      continue;
+    }
+    if (q && !configuredFolderPath.toLowerCase().includes(q)) {
+      continue;
+    }
+
+    let folderPath = configuredFolderPath;
+    if (!query.recursive) {
+      const relativePath = requestedPrefix
+        ? configuredFolderPath.slice(requestedPrefix.length)
+        : configuredFolderPath;
+      const childName = relativePath.split('/').filter(Boolean)[0];
+      if (!childName) {
+        continue;
+      }
+      folderPath = requestedPrefix ? `${requestedPrefix}${childName}` : childName;
+    }
+
+    if (!foldersByPath.has(folderPath)) {
+      foldersByPath.set(folderPath, {
+        path: folderPath,
+        name: folderPath.split('/').pop() || folderPath,
+        key: `${projectStoragePrefix(projectId)}${folderPath}/`,
+        size: 0,
+        fileCount: 0,
+        lastModified: null,
+        source: 'project-template',
+      });
+    }
+  }
+
   return {
     projectId,
     authType: auth.type,
@@ -2619,17 +2750,7 @@ app.post('/v1/projects/:projectId/files/folders', async (request) => {
   const input = projectFolderCreateSchema.parse(request.body ?? {});
   await getProjectOrThrow(projectId);
 
-  const folderPath = normalizeProjectFolderPath(input.path);
-  const markerPath = projectFolderMarkerPath(folderPath);
-  const key = projectStorageKey(projectId, markerPath);
-  const client = getProjectStorageClient();
-  const config = storageConfig();
-  await client.putObject({
-    bucket: config.bucket,
-    key,
-    body: Buffer.alloc(0),
-    contentType: 'application/x-agentcraft-folder',
-  });
+  const { folderPath, markerPath, key } = await putProjectFolderMarker(projectId, input.path);
 
   const actorUserId = await actorUserIdFromAuth(projectId, auth);
   await prisma.$transaction(async (tx) => {

@@ -176,6 +176,8 @@ Access rules:
 - Write, upload, and delete require `PROJECT_FILE_WRITE`.
 - Keep all paths project-relative. Do not use leading `/`, `..`, or host filesystem paths.
 - Treat download URLs as short-lived convenience links. Do not paste them into durable memory as if they were permanent authority.
+- If an assignment, output contract, or role prompt names a project shared path such as `待复审核/report.md`, `审核报告/final.md`, `reports/...`, or `deliverables/...`, create that file through `project-file-write`, `project-file-upload`, or the matching `/v1/projects/{projectId}/files/*` API. Do not substitute a container-local `/opt/data/workspace` file for a requested project shared file.
+- Before reporting a project shared deliverable as complete, verify it with `project-file-list` or `project-file-read` at the exact project-relative path.
 
 Shell helpers are available in this skill bundle. Source them before use:
 

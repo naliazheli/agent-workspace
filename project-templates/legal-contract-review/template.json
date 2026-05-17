@@ -119,8 +119,8 @@
       "description": "Primary jurisdiction or governing law to assume for preliminary contract review when the contract is silent or ambiguous.",
       "value": "",
       "isSecret": false,
-      "required": false,
-      "createTaskOnMissing": false,
+      "required": true,
+      "createTaskOnMissing": true,
       "category": "legal"
     },
     {
@@ -129,8 +129,8 @@
       "description": "Party perspective for risk analysis, such as freelancer, vendor, customer, employer, employee, buyer, or seller.",
       "value": "",
       "isSecret": false,
-      "required": false,
-      "createTaskOnMissing": false,
+      "required": true,
+      "createTaskOnMissing": true,
       "category": "legal"
     },
     {
@@ -139,8 +139,8 @@
       "description": "Brief context about the transaction, contract value, relationship, and risk tolerance.",
       "value": "",
       "isSecret": false,
-      "required": false,
-      "createTaskOnMissing": false,
+      "required": true,
+      "createTaskOnMissing": true,
       "category": "legal"
     }
   ]

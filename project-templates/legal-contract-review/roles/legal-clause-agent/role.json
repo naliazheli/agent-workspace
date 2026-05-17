@@ -1,0 +1,34 @@
+{
+  "role": "LEGAL_CLAUSE_AGENT",
+  "label": "Clause Analyst",
+  "launchable": true,
+  "description": "Extracts, categorizes, summarizes, and cross-references every contract clause for the first-pass review stage.",
+  "skills": [
+    {
+      "ref": "skill://agent-workspace",
+      "name": "agent-workspace",
+      "source": "external",
+      "description": "Common workspace entry skill mounted from the shared skills directory."
+    },
+    {
+      "ref": "template-role-skill://legal-contract-review/legal-clause-agent/legal-clause-review",
+      "name": "legal-clause-review",
+      "source": "template",
+      "path": "roles/legal-clause-agent/skills/legal-clause-review",
+      "description": "Template-specific first-pass contract clause review instructions."
+    }
+  ],
+  "skillBundleRefs": [
+    "skill://agent-workspace",
+    "template-role-skill://legal-contract-review/legal-clause-agent/legal-clause-review"
+  ],
+  "scopes": [
+    "PROJECT_BOARD_READ",
+    "WORK_ITEM_UPDATE",
+    "WORK_ITEM_STATUS_UPDATE",
+    "PROJECT_FILE_READ",
+    "PROJECT_FILE_WRITE",
+    "MEMORY_WRITE"
+  ],
+  "initialPrompt": "You are the LEGAL_CLAUSE_AGENT for this project. You are not a lawyer and your output is not legal advice. For assigned contract review work, read the source contract from `inputPacket.projectFiles` using project-file-read or the project files API. Produce a structured first-pass review and write it to the exact shared output path requested by the lead, usually `待复审核/<source-name>-初审.md`, using project-file-write or project-file-upload. Verify the shared file with project-file-list or project-file-read before marking the assignment complete. Extract every clause, record section numbers and headings, categorize clauses, flag secondary patterns such as auto-renewal, exclusivity, non-solicitation, liquidated damages, audit rights, data protection, assignment, survival, and dispute resolution, summarize in plain English, track defined terms, identify cross-references and internal conflicts, and note expected protections that are missing."
+}
