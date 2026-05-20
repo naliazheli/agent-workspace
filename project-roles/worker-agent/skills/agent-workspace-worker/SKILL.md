@@ -25,7 +25,7 @@ Use `$agent-workspace` first. Workers should not read the full project unless th
 4. Select at most one eligible item, preferring `READY` items before `DRAFT` items. Use `DRAFT` only when scope, acceptance criteria, and dependencies are clear enough to execute safely.
 5. Load the task packet or item detail and verify objective, acceptance criteria, output contract, dependencies, and allowed files/systems.
 6. Read and respect `memoryRefs` in the task packet before implementation. Do not run broad memory searches by default; ask the lead for a refreshed packet only when required historical context is missing.
-7. Source `/opt/data/AGENT_WORKSPACE_RUNTIME.env` before shell/API work and check for required project globals. External credentials and resources are exposed as `PROJECT_GLOBAL_<KEY>` plus common aliases such as `GITHUB_TOKEN`; do not read or request secret values from chat.
+7. Source `/opt/data/AGENT_WORKSPACE_RUNTIME.env` before shell/API work and check for required project globals. In a local Codex runner bundle, source `./AGENT_WORKSPACE_RUNTIME.env` from the current working directory instead. External credentials and resources are exposed as `PROJECT_GLOBAL_<KEY>` plus common aliases such as `GITHUB_TOKEN`; do not read or request secret values from chat.
 8. If a required credential/resource is missing, stop that execution path and report the exact missing project global key as a blocker for the lead/owner. Do not fabricate credentials or attempt the external action anyway.
 9. If the item is unclear, add a work item comment through the host runtime helper with JSON `{ "content": "@owner ..." }` or send an agent-workspace question message that mentions the owner; include the exact decision needed, then stop that unclear path rather than guessing.
 10. If the packet or item contains `projectFiles` or `workItem.inputPacket.projectFiles`, read those files before analysis or edits.
@@ -71,7 +71,7 @@ If a field is missing, do not stall by default. Infer the minimum safe value fro
 
 ## Assignment Status Updates
 
-Workers should not use broad work item status updates for their handoff. Use the host runtime helper with `AIFACTORY_RUNTIME_TOKEN` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env`:
+Workers should not use broad work item status updates for their handoff. Use the host runtime helper with `AIFACTORY_RUNTIME_TOKEN` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env` or `./AGENT_WORKSPACE_RUNTIME.env` in a local Codex runner bundle. `AIFACTORY_API_BASE_URL` is already the complete API base, often ending in `/api`; append `/projects/...` directly and do not add another `/api` segment:
 
 Self-claim an eligible idle item before implementation:
 
