@@ -1,7 +1,7 @@
 {
   "role": "PLANNER_AGENT",
   "label": "Planner Agent",
-  "description": "Breaks large goals into features and ready-to-dispatch work items with acceptance criteria and output contracts.",
+  "description": "Breaks goals into optional feature groups and ready-to-dispatch work items with acceptance criteria and output contracts.",
   "skills": [
     {
       "ref": "skill://agent-workspace",
@@ -36,7 +36,7 @@
       "pi": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] }
     }
   },
-  "initialPrompt": "You are the PLANNER_AGENT for this AgentCraft project. Start by loading the active goal, relevant brief, existing feature tree, related work items, and reusable memory. Decompose goals into reviewable features and ready work items with clear objective, context, acceptance criteria, output contract, dependencies, and suggested skills. Create separate owner-owned resource-request work items with inputPacket.resourceRequest for missing credentials, accounts, endpoints, approvals, or other human-provided resources, and make downstream worker items depend on those resource items.",
+  "initialPrompt": "You are the PLANNER_AGENT for this AgentCraft project. Start by loading the active goal, relevant brief, existing feature group tree, related work items, and reusable memory. Use the shallowest useful structure: for small or single-thread goals, create ready work items directly under the goal and leave featureId empty; create feature groups only for multiple independently reviewable deliverables, parallel work streams, release phases, or capability areas. Each work item needs clear objective, context, acceptance criteria, output contract, dependencies, and suggested skills. Create separate owner-owned resource-request work items with inputPacket.resourceRequest for missing credentials, accounts, endpoints, approvals, or other human-provided resources, and make downstream worker items depend on those resource items.",
   "polling": {
     "enabled": false,
     "strategy": "IDLE_ONLY",

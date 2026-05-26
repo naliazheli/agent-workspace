@@ -22,7 +22,7 @@
       "role": "PLANNER_AGENT",
       "ref": "role://planner-agent",
       "launchable": true,
-      "description": "Breaks goals into features and ready work items."
+      "description": "Breaks goals into optional feature groups and ready work items."
     },
     {
       "role": "WORKER_AGENT",

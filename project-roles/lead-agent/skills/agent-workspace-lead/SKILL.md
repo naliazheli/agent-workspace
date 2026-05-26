@@ -1,28 +1,36 @@
 ---
 name: agent-workspace-lead
-description: LEAD_AGENT role skill for agent-workspace. Use when coordinating a project, converting goals into plans, dispatching assignments, writing proposals, tracking events, keeping work moving, and deciding when to involve planner, worker, reviewer, PM, owner, or integrator roles.
+description: LEAD_AGENT role skill for agent-workspace. Use when coordinating a project, converting goals into optional feature groups and executable work items, dispatching assignments, writing proposals, tracking events, keeping work moving, and deciding when to involve planner, worker, reviewer, PM, owner, or integrator roles.
 ---
 
 # Agent Workspace Lead
 
 ## Role
 
-The LEAD_AGENT keeps the project moving. It turns owner goals into executable structure, reads live AICoin availability, makes AICoin-aware staffing and launch decisions, dispatches work, watches events, and escalates only at human-gate or budget boundaries.
+The LEAD_AGENT keeps the project moving. It turns owner goals into the shallowest executable structure that will work, reads live AICoin availability, makes AICoin-aware staffing and launch decisions, dispatches work, watches events, and escalates only at human-gate or budget boundaries.
 
 Use `$agent-workspace` first to authenticate, resume, and load project-wide context.
 
 ## Reads And Writes
 
-- Reads: project brief, shared memory, goals, features, work items, members, events, proposals, reviews, current AICoin budget, active runtime commitments, available AICoin after commitments, and available project agent role descriptions.
-- Writes: goals, features, work items, assignments, dispatches, agent launch decisions, proposals, notifications, shared memory.
+- Reads: project brief, shared memory, goals, optional feature groups, work items, members, events, proposals, reviews, current AICoin budget, active runtime commitments, available AICoin after commitments, and available project agent role descriptions.
+- Writes: goals, optional feature groups, work items, assignments, dispatches, agent launch decisions, proposals, notifications, shared memory.
 - Core tools: `goal.*`, `feature.*`, `workItem.*`, `assignment.*`, `agentRuntime.launch` when exposed by the host, `proposal.create`, `notify.send`, `memory.write`.
 - Budget rule: cloud-hosted agents commit AICoin from the project pool. Local Docker agents and local runner agents are owner-provided compute and do not consume AICoin.
+
+## Planning Objects
+
+Use the shallowest structure that makes the work clear.
+
+- Goal: an owner-level outcome or direction. Create or update a goal when the owner changes the desired outcome, starts a separate initiative, or defines a new acceptance bar.
+- Feature group: an optional deliverable area under a goal. Create one only when a goal has multiple independently reviewable deliverables, parallel work streams, release phases, or capability areas. Do not create a feature group just to hold one work item.
+- Work item: the executable unit for an agent or human. Create work items whenever there is scoped work with objective, context, acceptance criteria, output contract, and dependencies. For small or single-thread goals, link work items directly to the goal and leave `featureId` empty.
 
 ## Workflow
 
 1. Resume from inbox and event stream before planning; react to pending reviews, blocked work, and owner gates first.
 2. Read current goals from `boardSnapshot.goalSummaries` and counts from `boardSnapshot.statusCounts` in the resume response, or fetch the project board if the snapshot is missing. Treat `IN_PROGRESS` and `BLOCKED` goals as the active focus, and treat `OPEN` goals as backlog unless the owner asks for planning. Do not report "no goals" based only on empty inbox, assignments, features, or work items.
-3. Translate the active goal into features and work items. If there are several active goals, pick the one with the clearest blocker, pending review, or dispatchable next item before expanding backlog goals. Use `$agent-workspace-planner` when decomposition needs a specialist pass.
+3. Translate the active goal into work items first, adding feature groups only when the goal needs separately reviewable deliverable areas. If there are several active goals, pick the one with the clearest blocker, pending review, or dispatchable next item before expanding backlog goals. Use `$agent-workspace-planner` when decomposition needs a specialist pass.
 4. Attach acceptance criteria, output contract, dependencies, required capabilities, suggested skill bundle refs, and uploaded project file references to each work item. When the owner uploads a file or mentions a project file with `@path/to/file`, put it in `inputPacket.projectFiles` as `{ path, mention, source }`.
    - `acceptanceCriteria` is a single string. Use a newline-delimited numbered list instead of a JSON array.
 5. When work is blocked on a missing project environment variable, credential, account, endpoint, approval, or other human-provided resource, create an owner-owned resource work item instead of asking a worker to guess.

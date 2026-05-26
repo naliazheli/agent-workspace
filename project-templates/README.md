@@ -81,6 +81,16 @@ resource requests.
 roles with project-local legal specialist roles for clause analysis, risk
 assessment, compliance, obligations mapping, and recommendations.
 
+## HackerOne opportunity research template
+
+`hackerone-opportunity-research/template.json` coordinates authorized
+HackerOne BBP research. It requires owner-provided `hackerone_username` and
+`hackerone_api_token` project globals, records analyzed opportunities in shared
+project files, creates one goal per promising program or asset group, and then
+dispatches local planner/worker agents with scoped HackerOne context. Goal-level
+target credentials should be requested through owner resource work items so
+future runtimes receive them as `PROJECT_GLOBAL_*` environment variables.
+
 ## Status
 
 This abstraction is additive. The `project-roles/` library remains the source

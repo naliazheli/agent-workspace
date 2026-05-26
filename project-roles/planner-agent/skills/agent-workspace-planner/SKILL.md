@@ -1,6 +1,6 @@
 ---
 name: agent-workspace-planner
-description: PLANNER_AGENT role skill for agent-workspace. Use when breaking a goal into features and work items, writing acceptance criteria, defining output contracts, identifying dependencies, and recommending capability tags or skill bundle refs for worker assignment.
+description: PLANNER_AGENT role skill for agent-workspace. Use when breaking a goal into optional feature groups and work items, writing acceptance criteria, defining output contracts, identifying dependencies, and recommending capability tags or skill bundle refs for worker assignment.
 ---
 
 # Agent Workspace Planner
@@ -9,28 +9,29 @@ description: PLANNER_AGENT role skill for agent-workspace. Use when breaking a g
 
 The PLANNER_AGENT decomposes a goal into ready-to-dispatch work. It should make the next worker's context obvious enough that execution can start without another planning round.
 
-Use `$agent-workspace` first, then load only the target goal, relevant brief, memory, and existing feature/work item tree.
+Use `$agent-workspace` first, then load only the target goal, relevant brief, memory, and existing feature group/work item tree.
 
 ## Reads And Writes
 
-- Reads: project brief, shared memory, target goal, related features and work items.
-- Writes: features, work items, recommended skill tags, memory.
+- Reads: project brief, shared memory, target goal, related feature groups and work items.
+- Writes: optional feature groups, work items, recommended skill tags, memory.
 - Core tools: `goal.get`, `feature.create`, `feature.update`, `workItem.create`, `workItem.update`, `workItem.markReady`, `memory.write`.
 
 ## Workflow
 
 1. Restate the goal as deliverable outcomes and non-goals.
-2. Split into features that can be reviewed independently.
-3. Split features into work items with:
+2. Decide the shallowest useful structure. For small or single-thread goals, skip feature creation and put work items directly under the goal.
+3. Create feature groups only for multiple independently reviewable deliverables, parallel work streams, release phases, or capability areas. Do not create a feature group just to hold one work item.
+4. Create work items with:
    - objective
    - required context
    - acceptance criteria
    - output contract
    - dependencies
    - suggested capabilities and skill bundle refs
-4. Identify human-provided resources before execution work. If a downstream item needs a missing credential, API key, account, endpoint, approval, or other owner-controlled resource, create a separate owner-owned `INTEGRATION` work item with `inputPacket.resourceRequest` (`key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, `value: ""`) and make the downstream item depend on it.
-5. Mark worker work ready only when a worker can execute from the task packet and required resource request dependencies are configured or explicitly non-required.
-6. Write planning assumptions or discovered constraints to memory.
+5. Identify human-provided resources before execution work. If a downstream item needs a missing credential, API key, account, endpoint, approval, or other owner-controlled resource, create a separate owner-owned `INTEGRATION` work item with `inputPacket.resourceRequest` (`key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, `value: ""`) and make the downstream item depend on it.
+6. Mark worker work ready only when a worker can execute from the task packet and required resource request dependencies are configured or explicitly non-required.
+7. Write planning assumptions or discovered constraints to memory.
 
 ## Direct API Pattern
 
@@ -45,11 +46,12 @@ For long-lived runtimes, prefer sourcing `/opt/data/AGENT_WORKSPACE_RUNTIME.env`
 
 Minimum useful planner write pattern:
 
-1. Create a reviewable feature with a narrow title and description.
-2. Create one or more work items linked to that feature.
-3. Put acceptance criteria and output contract onto the work item, not only into chat text.
-4. Mark a worker item `READY` only after objective, dependencies, acceptance criteria, and output contract are sufficient for execution. `READY` and other status-only changes require `WORK_ITEM_STATUS_UPDATE`; broader edits require `WORK_ITEM_UPDATE`.
-5. If the scope is unclear, write the first decomposition and separately list questions for OWNER or LEAD instead of blocking all progress.
+1. Reuse the active goal as the default parent.
+2. Create feature groups only when they add reviewable structure.
+3. Create one or more work items linked to the goal, and to a feature group only when that group exists.
+4. Put acceptance criteria and output contract onto the work item, not only into chat text.
+5. Mark a worker item `READY` only after objective, dependencies, acceptance criteria, and output contract are sufficient for execution. `READY` and other status-only changes require `WORK_ITEM_STATUS_UPDATE`; broader edits require `WORK_ITEM_UPDATE`.
+6. If the scope is unclear, write the first decomposition and separately list questions for OWNER or LEAD instead of blocking all progress.
 
 ## Guardrails
 
