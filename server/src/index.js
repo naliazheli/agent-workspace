@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import jwt from 'jsonwebtoken';
@@ -372,6 +372,8 @@ const projectGlobalSchema = z.object({
   required: z.boolean().default(true),
   createTaskOnMissing: z.boolean().default(true),
   category: z.string().trim().optional().nullable(),
+  scope: z.string().trim().optional().nullable(),
+  goalId: z.string().trim().optional().nullable(),
 });
 
 const updateProjectGlobalsSchema = z.object({
@@ -505,9 +507,27 @@ function getProjectGlobalVariables(settings = {}) {
         required: entry?.required !== false,
         createTaskOnMissing: entry?.createTaskOnMissing !== false,
         category: typeof entry?.category === 'string' && entry.category.trim() ? entry.category.trim() : null,
+        scope: entry?.scope === 'goal' ? 'goal' : 'project',
+        goalId: entry?.scope === 'goal' && typeof entry?.goalId === 'string' && entry.goalId.trim()
+          ? entry.goalId.trim()
+          : null,
       };
     })
     .filter((entry) => entry.key);
+}
+
+function projectGlobalIdentity(global) {
+  return global?.scope === 'goal' && global.goalId
+    ? `goal:${global.goalId}:${global.key}`
+    : `project:${global?.key || ''}`;
+}
+
+function projectGlobalStorageKey(global) {
+  if (global?.scope === 'goal' && global.goalId) {
+    const digest = createHash('sha1').update(`${global.goalId}:${global.key}`).digest('hex').slice(0, 16);
+    return `g:${global.goalId}:${digest}`;
+  }
+  return global?.key || '';
 }
 
 function globalsForStoredSettings(globals) {
@@ -519,6 +539,8 @@ function globalsForStoredSettings(globals) {
     required: entry.required !== false,
     createTaskOnMissing: entry.createTaskOnMissing !== false,
     category: entry.category || null,
+    scope: entry.scope === 'goal' && entry.goalId ? 'goal' : 'project',
+    goalId: entry.scope === 'goal' && entry.goalId ? entry.goalId : null,
   }));
 }
 
@@ -531,6 +553,8 @@ function sanitizeProjectGlobals(globals, { includeValues = false } = {}) {
     required: entry.required !== false,
     createTaskOnMissing: entry.createTaskOnMissing !== false,
     category: entry.category || null,
+    scope: entry.scope === 'goal' && entry.goalId ? 'goal' : 'project',
+    goalId: entry.scope === 'goal' && entry.goalId ? entry.goalId : null,
     configured: Boolean(entry.value),
     ...(includeValues ? { value: entry.value || '' } : {}),
   }));
@@ -558,30 +582,33 @@ async function resolveProjectGlobals(projectId, settings) {
     where: { projectId },
     select: { key: true, encryptedValue: true, metadata: true },
   });
-  const recordByKey = new Map(records.map((record) => [record.key, record]));
-  const metadataByKey = new Map(
-    records.map((record) => {
-      const metadata = record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata) ? record.metadata : {};
-      return [
-        record.key,
-        {
-          key: record.key,
-          label: typeof metadata.label === 'string' ? metadata.label : record.key,
-          description: typeof metadata.description === 'string' ? metadata.description : null,
-          isSecret: metadata.isSecret !== false,
-          required: metadata.required !== false,
-          createTaskOnMissing: metadata.createTaskOnMissing !== false,
-          category: typeof metadata.category === 'string' ? metadata.category : null,
-        },
-      ];
-    }),
-  );
-  const allKeys = new Set([...configuredGlobals.map((entry) => entry.key), ...records.map((record) => record.key)]);
+  const recordByIdentity = new Map();
+  const metadataByIdentity = new Map();
+  for (const record of records) {
+    const metadata = record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata) ? record.metadata : {};
+    const entry = {
+      key: typeof metadata.key === 'string' && metadata.key.trim() ? metadata.key.trim() : record.key,
+      label: typeof metadata.label === 'string' ? metadata.label : record.key,
+      description: typeof metadata.description === 'string' ? metadata.description : null,
+      isSecret: metadata.isSecret !== false,
+      required: metadata.required !== false,
+      createTaskOnMissing: metadata.createTaskOnMissing !== false,
+      category: typeof metadata.category === 'string' ? metadata.category : null,
+      scope: metadata.scope === 'goal' ? 'goal' : 'project',
+      goalId: metadata.scope === 'goal' && typeof metadata.goalId === 'string' ? metadata.goalId : null,
+    };
+    const identity = projectGlobalIdentity(entry);
+    recordByIdentity.set(identity, record);
+    metadataByIdentity.set(identity, entry);
+  }
+  const configuredByIdentity = new Map(configuredGlobals.map((entry) => [projectGlobalIdentity(entry), entry]));
+  const allIdentities = new Set([...configuredByIdentity.keys(), ...recordByIdentity.keys()]);
 
-  return [...allKeys].map((key) => {
-    const configured = configuredGlobals.find((entry) => entry.key === key);
-    const fromRecord = metadataByKey.get(key);
-    const record = recordByKey.get(key);
+  return [...allIdentities].map((identity) => {
+    const configured = configuredByIdentity.get(identity);
+    const fromRecord = metadataByIdentity.get(identity);
+    const record = recordByIdentity.get(identity);
+    const key = configured?.key || fromRecord?.key || identity.replace(/^project:/, '');
     const value = configured?.providedValue
       ? configured.value || ''
       : record
@@ -597,6 +624,8 @@ async function resolveProjectGlobals(projectId, settings) {
       required: configured?.required ?? fromRecord?.required ?? true,
       createTaskOnMissing: configured?.createTaskOnMissing ?? fromRecord?.createTaskOnMissing ?? true,
       category: configured?.category ?? fromRecord?.category ?? null,
+      scope: configured?.scope ?? fromRecord?.scope ?? 'project',
+      goalId: configured?.goalId ?? fromRecord?.goalId ?? null,
       value,
     };
   });
@@ -1663,9 +1692,11 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
       required: entry.required !== false,
       createTaskOnMissing: entry.createTaskOnMissing !== false,
       category: entry.category || null,
+      scope: entry.scope === 'goal' ? 'goal' : 'project',
+      goalId: entry.scope === 'goal' && entry.goalId ? entry.goalId : null,
     }))
     .filter((entry) => entry.key);
-  const desiredKeys = globals.map((entry) => entry.key);
+  const desiredStorageKeys = globals.map((entry) => projectGlobalStorageKey(entry)).filter(Boolean);
 
   const existingSettings = project.settings && typeof project.settings === 'object' && !Array.isArray(project.settings)
     ? project.settings
@@ -1679,11 +1710,11 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
   }
 
   await prisma.$transaction(async (tx) => {
-    if (desiredKeys.length) {
+    if (desiredStorageKeys.length) {
       await tx.projectGlobalSecret.deleteMany({
         where: {
           projectId,
-          key: { notIn: desiredKeys },
+          key: { notIn: desiredStorageKeys },
         },
       });
     } else {
@@ -1691,32 +1722,36 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
     }
 
     for (const global of globals) {
+      const storageKey = projectGlobalStorageKey(global);
       if (!global.value) {
         await tx.projectGlobalSecret.deleteMany({
-          where: { projectId, key: global.key },
+          where: { projectId, key: storageKey },
         });
         continue;
       }
 
       const metadata = {
+        key: global.key,
         label: global.label || global.key,
         description: global.description || null,
         isSecret: Boolean(global.isSecret),
         required: global.required !== false,
         createTaskOnMissing: global.createTaskOnMissing !== false,
         category: global.category || null,
+        scope: global.scope === 'goal' && global.goalId ? 'goal' : 'project',
+        goalId: global.scope === 'goal' && global.goalId ? global.goalId : null,
       };
       await tx.projectGlobalSecret.upsert({
         where: {
           projectId_key: {
             projectId,
-            key: global.key,
+            key: storageKey,
           },
         },
         create: {
           id: randomUUID(),
           projectId,
-          key: global.key,
+          key: storageKey,
           encryptedValue: encryptProjectGlobalValue(global.value),
           metadata,
         },
@@ -1885,8 +1920,8 @@ app.get('/v1/projects/:projectId/members', async (request) => {
 
   const members = await prisma.projectMember.findMany({
     where: { projectId, removedAt: null },
-    orderBy: { joinedAt: 'asc' },
   });
+  members.sort((left, right) => new Date(left.joinedAt).getTime() - new Date(right.joinedAt).getTime());
 
   const userIds = [...new Set(members.map((member) => member.userId))];
   const memberIds = members.map((member) => member.id);
