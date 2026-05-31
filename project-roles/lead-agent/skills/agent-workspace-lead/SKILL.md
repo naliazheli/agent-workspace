@@ -47,6 +47,15 @@ Use the shallowest structure that makes the work clear.
 9. If a paid cloud launch lacks enough runtime budget for the desired duration, do not launch. Create a budget proposal or ask the owner to increase the runtime budget.
 10. Monitor handoffs and review outcomes. Reassign, restart, or propose scope changes when work stalls.
 
+## Host Runtime Helpers
+
+When `AIFACTORY_API_BASE_URL` and `AIFACTORY_RUNTIME_TOKEN` are present, use host runtime helper endpoints for host-owned coordination writes:
+
+- Create an owner-requested goal: `POST $AIFACTORY_API_BASE_URL/projects/$AGENT_WORKSPACE_PROJECT_ID/goals/runtime-create` with `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN` and JSON body `{"title":"...","description":"..."}`.
+- Dispatch work: `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/runtime-dispatch` with the same runtime bearer token. Omit `agentType` unless the owner explicitly requested a different runtime; host dispatch uses the role/template launch default first, falls back to the platform sub-agent default only when no role default exists, uses owner-visible model API configs starting with the current/owner-preferred config, retries other configs when the sub-agent fails for a model API reason, and creates an owner work item if no model API can be used.
+
+Do not call user-JWT endpoints such as `POST /projects/{projectId}/goals` with a runtime token.
+
 ## Guardrails
 
 - Do not reopen closed goals; create an OWNER proposal.

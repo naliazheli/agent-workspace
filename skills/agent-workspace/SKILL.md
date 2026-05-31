@@ -88,13 +88,22 @@ When using shell tools, source the env file in the same command. For example:
 
 ```bash
 . /opt/data/AGENT_WORKSPACE_RUNTIME.env
-curl -s -X POST "$AGENT_WORKSPACE_BASE_URL/v1/projects/$PROJECT_ID/features" \
-  -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{...}'
-```
+python3 - <<'PY'
+import json, os, urllib.request
 
-Local Hermes runtime images may not include `curl` or `jq`, and runtimes usually cannot install packages with `apt-get`. If `curl` is missing, use the available standard runtime such as `python3` with `urllib.request` or Node.js `fetch`; do not spend time trying to install system packages.
+body = json.dumps({"name": "..."}).encode()
+req = urllib.request.Request(
+    f"{os.environ['AGENT_WORKSPACE_BASE_URL']}/v1/projects/{os.environ['PROJECT_ID']}/features",
+    data=body,
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {os.environ['AGENT_WORKSPACE_TOKEN']}",
+        "Content-Type": "application/json",
+    },
+)
+print(urllib.request.urlopen(req).read().decode())
+PY
+```
 
 Local Docker debug URLs such as `http://host.docker.internal:3010` may trigger an approval prompt in secure runtimes; approve once, then continue the same command flow.
 

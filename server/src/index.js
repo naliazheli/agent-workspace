@@ -196,6 +196,23 @@ const boardQuerySchema = z.object({
   workItemLimit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+const projectEventListQuerySchema = z.object({
+  sinceSeq: z.coerce.number().int().min(0).optional(),
+  types: z
+    .string()
+    .optional()
+    .transform((value) => (value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [])),
+  limit: z.coerce.number().int().min(1).max(200).default(80),
+});
+
+const createProjectEventSchema = z.object({
+  type: z.string().trim().min(1).max(80),
+  refType: z.string().trim().min(1).max(50).optional(),
+  refId: z.string().trim().min(1).optional(),
+  actorUserId: z.string().trim().min(1).optional(),
+  payload: z.record(z.any()).optional(),
+});
+
 const heartbeatSchema = z.object({
   projectId: z.string().trim().min(1),
   status: z.string().trim().min(1),
@@ -844,16 +861,34 @@ async function resolveUniqueSlug(name, preferredSlug) {
 }
 
 async function appendProjectEvent(tx, { projectId, type, refType = null, refId = null, actorUserId = null, payload = null }) {
-  const maxSeq = await tx.projectEvent.aggregate({
-    where: { projectId },
-    _max: { seq: true },
-  });
+  await tx.$executeRaw`
+    INSERT INTO project_event_counters (projectId, seq)
+    VALUES (${projectId}, 0)
+    ON DUPLICATE KEY UPDATE seq = seq
+  `;
+  const counterRows = await tx.$queryRaw`
+    SELECT seq
+    FROM project_event_counters
+    WHERE projectId = ${projectId}
+    FOR UPDATE
+  `;
+  const eventRows = await tx.$queryRaw`
+    SELECT COALESCE(MAX(seq), 0) AS seq
+    FROM project_events
+    WHERE projectId = ${projectId}
+  `;
+  const nextSeq = Math.max(Number(counterRows?.[0]?.seq || 0), Number(eventRows?.[0]?.seq || 0)) + 1;
+  await tx.$executeRaw`
+    UPDATE project_event_counters
+    SET seq = ${nextSeq}
+    WHERE projectId = ${projectId}
+  `;
 
   return tx.projectEvent.create({
     data: {
       id: randomUUID(),
       projectId,
-      seq: (maxSeq._max.seq ?? 0) + 1,
+      seq: nextSeq,
       type,
       refType,
       refId,
@@ -861,6 +896,55 @@ async function appendProjectEvent(tx, { projectId, type, refType = null, refId =
       payload,
     },
   });
+}
+
+function isRetryableProjectEventTransactionError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || error || '');
+  return (
+    code === 'P2002' ||
+    code === 'P2034' ||
+    /project_events_projectId_seq_key/i.test(message) ||
+    /Deadlock found|Lock wait timeout|Duplicate entry/i.test(message) ||
+    /\b1213\b|\b1205\b/i.test(message)
+  );
+}
+
+async function projectEventTransaction(callback, options = {}) {
+  const maxAttempts = options.maxAttempts ?? 5;
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await prisma.$transaction(callback, {
+        timeout: options.timeout ?? 20000,
+        maxWait: options.maxWait ?? 10000,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableProjectEventTransactionError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30 * attempt + Math.floor(Math.random() * 40)));
+    }
+  }
+  throw lastError;
+}
+
+async function ensureProjectEventCounterTable() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS project_event_counters (
+      projectId VARCHAR(191) NOT NULL PRIMARY KEY,
+      seq INT NOT NULL DEFAULT 0,
+      updatedAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO project_event_counters (projectId, seq)
+    SELECT projectId, COALESCE(MAX(seq), 0)
+    FROM project_events
+    GROUP BY projectId
+    ON DUPLICATE KEY UPDATE seq = GREATEST(project_event_counters.seq, VALUES(seq))
+  `);
 }
 
 async function requireHost(request) {
@@ -1913,6 +1997,75 @@ app.get('/v1/projects/:projectId/board', async (request) => {
   };
 });
 
+app.get('/v1/projects/:projectId/events', async (request) => {
+  const { projectId } = request.params;
+  const query = projectEventListQuerySchema.parse(request.query ?? {});
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_BOARD_READ' });
+  await getProjectOrThrow(projectId);
+
+  const events = await prisma.projectEvent.findMany({
+    where: {
+      projectId,
+      ...(query.sinceSeq !== undefined ? { seq: { gt: query.sinceSeq } } : {}),
+      ...(query.types.length ? { type: { in: query.types } } : {}),
+    },
+    include: {
+      actorUser: { select: { id: true, email: true, displayName: true, role: true } },
+    },
+    orderBy: { seq: 'desc' },
+    take: query.limit,
+  });
+
+  const chronological = events.reverse();
+  return {
+    projectId,
+    events: chronological.map((event) => ({
+      id: event.id,
+      seq: event.seq,
+      type: event.type,
+      refType: event.refType,
+      refId: event.refId,
+      payload: event.payload,
+      actor: event.actorUser,
+      createdAt: event.createdAt,
+    })),
+    lastSeq: chronological.at(-1)?.seq ?? query.sinceSeq ?? 0,
+  };
+});
+
+app.post('/v1/projects/:projectId/events', async (request) => {
+  const { projectId } = request.params;
+  await requireHost(request);
+  const input = createProjectEventSchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+
+  const actorUserId = input.actorUserId ? await actorUserIdFromAuth(projectId, { type: 'host' }, input.actorUserId) : null;
+  const event = await projectEventTransaction((tx) =>
+    appendProjectEvent(tx, {
+      projectId,
+      type: input.type,
+      refType: input.refType ?? null,
+      refId: input.refId ?? null,
+      actorUserId,
+      payload: input.payload ?? null,
+    }),
+  );
+
+  return {
+    projectId,
+    event: {
+      id: event.id,
+      seq: event.seq,
+      type: event.type,
+      refType: event.refType,
+      refId: event.refId,
+      payload: event.payload,
+      actorUserId: event.actorUserId,
+      createdAt: event.createdAt,
+    },
+  };
+});
+
 app.get('/v1/projects/:projectId/members', async (request) => {
   const { projectId } = request.params;
   await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_MEMBER_READ' });
@@ -2230,7 +2383,7 @@ app.post('/v1/projects/:projectId/assignments', async (request) => {
     }
   }
 
-  const assignment = await prisma.$transaction(async (tx) => {
+  const assignment = await projectEventTransaction(async (tx) => {
     const createdAssignment = await tx.projectAssignment.create({
       data: {
         id: randomUUID(),
@@ -2788,7 +2941,7 @@ app.post('/v1/projects/:projectId/files/folders', async (request) => {
   const { folderPath, markerPath, key } = await putProjectFolderMarker(projectId, input.path);
 
   const actorUserId = await actorUserIdFromAuth(projectId, auth);
-  await prisma.$transaction(async (tx) => {
+  await projectEventTransaction(async (tx) => {
     await appendProjectEvent(tx, {
       projectId,
       type: 'PROJECT_FOLDER_CREATED',
@@ -2905,7 +3058,7 @@ app.post('/v1/projects/:projectId/files/write', async (request) => {
   });
 
   const actorUserId = await actorUserIdFromAuth(projectId, auth);
-  await prisma.$transaction(async (tx) => {
+  await projectEventTransaction(async (tx) => {
     await appendProjectEvent(tx, {
       projectId,
       type: 'PROJECT_FILE_WRITTEN',
@@ -3179,6 +3332,7 @@ app.post('/v1/projects/:projectId/messages', async (request) => {
 
   const senderMemberId = auth.type === 'runtime' ? auth.token.memberId : input.senderMemberId ?? null;
   const thread = await getThreadForWrite(projectId, input, senderMemberId);
+  const senderMember = senderMemberId ? await getProjectMemberOrThrow(projectId, senderMemberId) : null;
 
   const created = await prisma.$transaction(async (tx) => {
     const message = await tx.projectMessage.create({
@@ -3235,8 +3389,16 @@ app.post('/v1/projects/:projectId/messages', async (request) => {
       type: 'MESSAGE_CREATED',
       refType: 'THREAD',
       refId: thread.id,
-      actorUserId: null,
-      payload: { messageId: message.id },
+      actorUserId: senderMember?.userId ?? null,
+      payload: {
+        messageId: message.id,
+        threadId: thread.id,
+        threadTitle: thread.title,
+        senderMemberId,
+        targetMemberIds: input.targetMemberIds ?? [],
+        mentionMemberIds: input.mentions ?? [],
+        messageType: input.messageType,
+      },
     });
 
     return message;
@@ -3580,6 +3742,7 @@ app.post('/v1/projects/:projectId/external-events', async (request) => {
 });
 
 const start = async () => {
+  await ensureProjectEventCounterTable();
   await app.listen({ port: env.PORT, host: env.HOST });
 };
 

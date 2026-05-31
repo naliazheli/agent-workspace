@@ -193,11 +193,23 @@ git -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${AUTH}" \
 
 ```bash
 . /opt/data/AGENT_WORKSPACE_RUNTIME.env
-curl -s -X POST "https://api.github.com/repos/<owner>/<repo>/pulls" \
-  -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  -H "User-Agent: hermes-agent" \
-  -d '{"title":"...", "head":"<branch>", "base":"main", "body":"..."}'
+python3 - <<'PY'
+import json, os, urllib.request
+
+body = json.dumps({"title": "...", "head": "<branch>", "base": "main", "body": "..."}).encode()
+req = urllib.request.Request(
+    "https://api.github.com/repos/<owner>/<repo>/pulls",
+    data=body,
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "hermes-agent",
+        "Content-Type": "application/json",
+    },
+)
+print(urllib.request.urlopen(req).read().decode())
+PY
 ```
 
   - if push fails, inspect the HTTP error and GitHub response before retrying with a different auth shape
