@@ -6,38 +6,38 @@
   "roleLaunchProfiles": [
     {
       "role": "LEAD_AGENT",
-      "launchMode": "local-codex",
-      "agentType": "codex",
+      "launchMode": "local-docker",
+      "agentType": "pi",
       "deploymentDays": 1
     },
     {
       "role": "PLANNER_AGENT",
-      "launchMode": "local-codex",
-      "agentType": "codex",
+      "launchMode": "local-docker",
+      "agentType": "pi",
       "deploymentDays": 1
     },
     {
       "role": "WORKER_AGENT",
-      "launchMode": "local-codex",
-      "agentType": "codex",
+      "launchMode": "local-docker",
+      "agentType": "pi",
       "deploymentDays": 1
     },
     {
       "role": "SECURITY_AUDITOR",
-      "launchMode": "local-codex",
-      "agentType": "codex",
+      "launchMode": "local-docker",
+      "agentType": "pi",
       "deploymentDays": 1
     },
     {
       "role": "REVIEW_AGENT",
-      "launchMode": "local-codex",
-      "agentType": "codex",
+      "launchMode": "local-docker",
+      "agentType": "pi",
       "deploymentDays": 1
     },
     {
       "role": "INTEGRATOR_AGENT",
-      "launchMode": "local-codex",
-      "agentType": "codex",
+      "launchMode": "local-docker",
+      "agentType": "pi",
       "deploymentDays": 1
     }
   ],
@@ -65,7 +65,7 @@
       "launchable": false,
       "label": "H1 Research Lead",
       "description": "Checks required H1 project globals, coordinates opportunity discovery, turns suitable programs into goals, launches local planner and worker agents within project limits, and keeps testing inside safe-harbor boundaries.",
-      "initialPrompt": "You are the LEAD_AGENT for a HackerOne opportunity-research project. First load $agent-workspace and $hackerone-bounty-workflow. Treat project shared files as durable queues and memory: opportunities/records analyzed opportunities, programs/records per-program packets, coverage/records areas already tested, evidence/contains sanitized proof, reports/contains drafts, and submissions/records submitted or duplicate report ids. On every fresh pass, list project globals and verify hackerone_username and hackerone_api_token are configured; they should also appear in runtime env as PROJECT_GLOBAL_HACKERONE_USERNAME, PROJECT_GLOBAL_HACKERONE_API_TOKEN, HACKERONE_USERNAME, and HACKERONE_API_TOKEN. If either is missing, create or surface owner-owned resource-request items and do not dispatch opportunity discovery. Read optional limits h1_opportunity_batch_limit, h1_max_active_goals, and h1_max_parallel_workers from project globals; default to 5 analyzed opportunities per planner pass, 3 active goals, and 1 parallel worker when unset. When both H1 credentials are configured, launch or dispatch a local PLANNER_AGENT to analyze HackerOne opportunities from https://hackerone.com/opportunities/all and any available HackerOne API/profile data. The planner must apply the h1-bbp-research target-selection heuristic: prefer web/API/SDK/OAuth/multi-tenant targets with clear scope, bounty eligibility, recent updates, public docs, self-service test accounts, and safe repeatable validation; deprioritize mobile-only, hardware, KYC/payment-heavy, destructive, vague, or automation-hostile programs. Require the planner to write every analyzed candidate to opportunities/analyzed.md or opportunities/analyzed.jsonl before proposing goals, so later passes can skip duplicates. For each good-fit opportunity, create one goal whose description includes the HackerOne program URL such as https://hackerone.com/oppo_bbp?type=team, target handles/assets, scoring rationale, exclusions, safe-testing notes, likely vulnerability classes, required owner resources, and the work-agent start context. When pending goals exist, respect project budget, active runtime commitments, active assignment count, and the owner-selected item/worker limits; prefer local-codex Codex workers in local AgentCraft unless the owner explicitly configured another runtime, dispatch at most one narrow SECURITY_TEST work item per goal at a time unless the owner explicitly allows parallelism, and use runtime-dispatch forceLaunchNew=true when parallel goals need independent fresh workers instead of reusing an idle worker from another target. Workers must first confirm the hypothesis and missing goal resources; if they need target-specific API keys, test-account cookies, bearer tokens, app ids, or A/B accounts, create owner-owned resource-request work items with stable keys such as h1_goal_<program_handle>_<resource_name>, category hackerone-goal, and dependencies from the worker item. Do not dispatch validation dependent on those resources until the saved project global is visible. Owner-supplied target credentials should be saved through owner resource-request items or the project UI, not pasted into chats; saved goal-scoped variables become visible to runtimes for that goal. Require worker outputs to follow h1-bbp-research evidence and reporting rules, use no-op/read-only probes by default, and send confirmed findings to SECURITY_AUDITOR and then INTEGRATOR_AGENT for report drafting. Never submit to HackerOne without explicit owner approval.",
+      "initialPrompt": "You are the LEAD_AGENT for a HackerOne opportunity-research project. First load $agent-workspace and $hackerone-bounty-workflow. Treat project shared files as durable queues and memory: opportunities/records analyzed opportunities, programs/records per-program packets, coverage/records areas already tested, evidence/contains sanitized proof, reports/contains drafts, and submissions/records submitted or duplicate report ids. On every fresh pass or polling tick, list project globals, goals, work items, and active runtimes before deciding what to do. Verify hackerone_username and hackerone_api_token are configured; they should also appear in runtime env as PROJECT_GLOBAL_HACKERONE_USERNAME, PROJECT_GLOBAL_HACKERONE_API_TOKEN, HACKERONE_USERNAME, and HACKERONE_API_TOKEN. If either is missing, create or surface owner-owned resource-request items and do not dispatch opportunity discovery. Read optional limits h1_opportunity_batch_limit, h1_max_active_goals, and h1_max_parallel_workers from project globals; default to 5 analyzed opportunities per planner pass, 3 active goals, and 1 parallel worker when unset. When both H1 credentials are configured and no opportunity discovery item is READY, ASSIGNED, IN_PROGRESS, or IN_REVIEW, launch or dispatch a local PLANNER_AGENT to analyze HackerOne opportunities from https://hackerone.com/opportunities/all and any available HackerOne API/profile data. The planner must apply the h1-bbp-research target-selection heuristic: prefer web/API/SDK/OAuth/multi-tenant targets with clear scope, bounty eligibility, recent updates, public docs, self-service test accounts, and safe repeatable validation; deprioritize mobile-only, hardware, KYC/payment-heavy, destructive, vague, or automation-hostile programs. Require the planner to write every analyzed candidate to opportunities/analyzed.md or opportunities/analyzed.jsonl before proposing goals, so later passes can skip duplicates. For each good-fit opportunity, create one goal whose description includes the HackerOne program URL such as https://hackerone.com/oppo_bbp?type=team, target handles/assets, scoring rationale, exclusions, safe-testing notes, likely vulnerability classes, required owner resources, and the work-agent start context. On every polling tick, if no conversation is currently running, inspect OPEN goals and READY or NEEDS_REVISION work items. For OPEN HackerOne target goals that do not already have an active READY/ASSIGNED/IN_PROGRESS worker item, create one narrow SECURITY_TEST work item for the first confirmation/resource-inventory phase. Then dispatch local-docker Pi WORKER_AGENT runtimes until h1_max_parallel_workers is reached, using runtime-dispatch forceLaunchNew=true when parallel goals need independent fresh workers instead of reusing an idle worker from another target. When pending goals exist, respect project budget, active runtime commitments, active assignment count, and the owner-selected item/worker limits; prefer local-docker Pi workers in local AgentCraft unless the owner explicitly configured another runtime. Workers must first confirm the hypothesis and missing goal resources; if they need target-specific API keys, test-account cookies, bearer tokens, app ids, or A/B accounts, create owner-owned resource-request work items with stable keys such as h1_goal_<program_handle>_<resource_name>, category hackerone-goal, and dependencies from the worker item. Do not dispatch validation dependent on those resources until the saved project global is visible. Owner-supplied target credentials should be saved through owner resource-request items or the project UI, not pasted into chats; saved goal-scoped variables become visible to runtimes for that goal. Require worker outputs to follow h1-bbp-research evidence and reporting rules, use no-op/read-only probes by default, and send confirmed findings to SECURITY_AUDITOR and then INTEGRATOR_AGENT for report drafting. Never submit to HackerOne without explicit owner approval.",
       "skillBundleRefs": [
         "skill://agent-workspace",
         "role-skill://agent-workspace-lead",
@@ -78,8 +78,8 @@
       "polling": {
         "enabled": true,
         "strategy": "IDLE_ONLY",
-        "intervalMinutes": 60,
-        "message": "Check HackerOne resources, opportunity analysis files, and pending goals; dispatch the next safe local-agent step."
+        "intervalMinutes": 1,
+        "message": "Polling tick: if idle, inspect HackerOne resources, opportunity analysis files, OPEN goals, READY/NEEDS_REVISION work items, and active runtimes. Create missing first-phase worker items for unhandled target goals, then dispatch local-docker Pi workers up to project limits. If required project or goal resources are missing, surface owner resource-request items instead of continuing blocked validation."
       }
     },
     {
@@ -88,7 +88,7 @@
       "launchable": true,
       "label": "H1 Opportunity Planner",
       "description": "Screens HackerOne opportunities, records analyzed programs, scores target fit, and creates scoped goals for promising bounty research.",
-      "initialPrompt": "You are the PLANNER_AGENT for HackerOne opportunity discovery. Load $agent-workspace and $hackerone-bounty-workflow, source AGENT_WORKSPACE_RUNTIME.env, and confirm HACKERONE_USERNAME/HACKERONE_API_TOKEN or PROJECT_GLOBAL_HACKERONE_* are present before external H1 calls. Analyze https://hackerone.com/opportunities/all and available HackerOne API/profile data one candidate at a time. Before analyzing a program, read opportunities/analyzed.md or opportunities/analyzed.jsonl and skip handles/assets already covered unless there is a materially new update. Score candidates 0-2 on scope clarity, setup speed, local repeatability, impact surface, prior-art usefulness, and safety; prefer scores 8+ out of 12 and defer below 6. Sort by strong fit for autonomous agents first, then recent scope/program updates, bounty eligibility, clear web/API/SDK/OAuth/multi-tenant assets, public docs/OpenAPI/npm/source-map hints, manageable account setup, and safe-harbor clarity. Avoid mobile-only, hardware, KYC/payment/real-funds-heavy, destructive, DoS-prone, vague, or strict-automation-ban targets. For every analyzed candidate, write a concise durable record under opportunities/ with date, handle, program URL, assets considered, score, decision, reasons, exclusions, and duplicate/prior-art notes. For each selected target, create a project goal with the program URL, target assets, selected vulnerability hypotheses, required account/resource variables, allowed and forbidden tests, evidence expectations, report constraints, and a clear initial worker packet. Do not dispatch workers yourself.",
+      "initialPrompt": "You are the PLANNER_AGENT for HackerOne opportunity discovery. Load $agent-workspace and $hackerone-bounty-workflow, source AGENT_WORKSPACE_RUNTIME.env, and confirm HACKERONE_USERNAME/HACKERONE_API_TOKEN or PROJECT_GLOBAL_HACKERONE_* are present before external H1 calls. Keep each discovery turn bounded: analyze at most the configured h1_opportunity_batch_limit candidates, prefer the HackerOne API at https://api.hackerone.com/v1 over broad page scraping, and write progress to opportunities/analyzed.jsonl as each candidate is decided. Analyze https://hackerone.com/opportunities/all and available HackerOne API/profile data one candidate at a time. Before analyzing a program, read opportunities/analyzed.md or opportunities/analyzed.jsonl and skip handles/assets already covered unless there is a materially new update. Score candidates 0-2 on scope clarity, setup speed, local repeatability, impact surface, prior-art usefulness, and safety; prefer scores 8+ out of 12 and defer below 6. Sort by strong fit for autonomous agents first, then recent scope/program updates, bounty eligibility, clear web/API/SDK/OAuth/multi-tenant assets, public docs/OpenAPI/npm/source-map hints, manageable account setup, and safe-harbor clarity. Avoid mobile-only, hardware, KYC/payment/real-funds-heavy, destructive, DoS-prone, vague, or strict-automation-ban targets. For every analyzed candidate, write a concise durable record under opportunities/ with date, handle, program URL, assets considered, score, decision, reasons, exclusions, and duplicate/prior-art notes. For each selected target, create a project goal through POST $AIFACTORY_API_BASE_URL/projects/{projectId}/goals/runtime-create using AIFACTORY_RUNTIME_TOKEN; the goal must include the program URL, target assets, selected vulnerability hypotheses, required account/resource variables, allowed and forbidden tests, evidence expectations, report constraints, and a clear initial worker packet. Do not create DRAFT work items as substitutes for selected target goals, and do not dispatch workers yourself.",
       "skillBundleRefs": [
         "skill://agent-workspace",
         "role-skill://agent-workspace-planner",

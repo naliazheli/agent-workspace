@@ -59,6 +59,22 @@ function nonClosedGoalWhere(includeClosed) {
   return includeClosed ? {} : { status: { notIn: CLOSED_GOAL_STATUSES } };
 }
 
+function resourceRequestIdentityFromPacket(inputPacket, fallbackGoalId = null) {
+  if (!inputPacket || typeof inputPacket !== 'object' || Array.isArray(inputPacket)) return null;
+  const request = inputPacket.resourceRequest;
+  if (!request || typeof request !== 'object' || Array.isArray(request)) return null;
+  const key = typeof request.key === 'string' ? request.key.trim().toLowerCase() : '';
+  if (!key) return null;
+  const isGoalScoped =
+    request.scope === 'goal' ||
+    request.goalScope === true ||
+    request.category === 'hackerone-goal' ||
+    Boolean(request.goalId) ||
+    Boolean(fallbackGoalId);
+  const goalId = isGoalScoped ? String(request.goalId || fallbackGoalId || '').trim() : '';
+  return `${isGoalScoped ? 'goal' : 'project'}:${goalId}:${key}`;
+}
+
 const runtimeTokenSchema = z.object({
   projectId: z.string(),
   runtimeId: z.string(),
@@ -2293,6 +2309,23 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
   await ensureProjectReference(projectId, 'goal', goalId);
   const actorUserId = await actorUserIdFromAuth(projectId, auth, input.createdByUserId);
   const runtimeMetadata = runtimeMetadataFromAuth(auth);
+  const resourceRequestIdentity = resourceRequestIdentityFromPacket(input.inputPacket, goalId);
+
+  if (resourceRequestIdentity) {
+    const openResourceItems = await prisma.projectWorkItem.findMany({
+      where: {
+        projectId,
+        status: { notIn: CLOSED_WORK_ITEM_STATUSES },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const existingResourceItem = openResourceItems.find(
+      (item) => resourceRequestIdentityFromPacket(item.inputPacket, item.goalId) === resourceRequestIdentity,
+    );
+    if (existingResourceItem) {
+      return { workItemId: existingResourceItem.id, workItem: existingResourceItem, reused: true };
+    }
+  }
 
   const workItem = await prisma.$transaction(async (tx) => {
     const created = await tx.projectWorkItem.create({
