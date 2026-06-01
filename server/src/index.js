@@ -75,13 +75,18 @@ function resourceRequestIdentityFromPacket(inputPacket, fallbackGoalId = null) {
   return `${isGoalScoped ? 'goal' : 'project'}:${goalId}:${key}`;
 }
 
+const runtimeTokenStringArraySchema = z.preprocess((value) => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => typeof item === 'string');
+}, z.array(z.string()));
+
 const runtimeTokenSchema = z.object({
   projectId: z.string(),
   runtimeId: z.string(),
   memberId: z.string(),
   grantId: z.string(),
-  scopes: z.array(z.string()).default([]),
-  capabilityBundleRefs: z.array(z.string()).default([]),
+  scopes: runtimeTokenStringArraySchema.default([]),
+  capabilityBundleRefs: runtimeTokenStringArraySchema.default([]),
   exp: z.number().optional(),
 });
 
@@ -1011,7 +1016,11 @@ function verifyRuntimeToken(request) {
     throw unauthorized('Invalid runtime bearer token');
   }
 
-  return runtimeTokenSchema.parse(payload);
+  const parsed = runtimeTokenSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw unauthorized('Invalid runtime bearer token');
+  }
+  return parsed.data;
 }
 
 async function requireRuntime(request, { projectId, runtimeId, scope } = {}) {
@@ -2709,7 +2718,7 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
 
   const member = await getProjectMemberOrThrow(input.projectId, auth.token.memberId);
 
-  await prisma.agentRuntime.update({
+  await prisma.agentRuntime.updateMany({
     where: { id: runtimeId },
     data: { status: 'ACTIVE', lastSeenAt: new Date() },
   });
@@ -2862,7 +2871,7 @@ app.post('/v1/runtimes/:runtimeId/heartbeat', async (request) => {
   });
 
   const now = new Date();
-  await prisma.agentRuntime.update({
+  await prisma.agentRuntime.updateMany({
     where: { id: runtimeId },
     data: {
       status: mapPresence(input.status) === 'ACTIVE' ? 'ACTIVE' : 'IDLE',
