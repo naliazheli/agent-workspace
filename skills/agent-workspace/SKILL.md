@@ -119,6 +119,7 @@ Common runtime endpoints:
 - `POST {base}/v1/projects/{projectId}/files/upload`
 - `POST {base}/v1/projects/{projectId}/files/folders`
 - `GET {base}/v1/projects/{projectId}/globals?includeValues=true` (requires `PROJECT_GLOBAL_READ`)
+- `PUT {base}/v1/projects/{projectId}/globals` (requires `PROJECT_GLOBAL_WRITE`; include `workItemId` and `source` when a work item is the reason for the write so the project event graph can retain that context)
 - `GET {base}/v1/projects/{projectId}/memories?q=...&memoryType=...` (requires `MEMORY_READ`)
 - `POST {base}/v1/projects/{projectId}/memories` (requires `MEMORY_WRITE`)
 - `POST {base}/v1/projects/{projectId}/features`

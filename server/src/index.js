@@ -396,6 +396,8 @@ const projectGlobalSchema = z.object({
 const updateProjectGlobalsSchema = z.object({
   globals: z.array(projectGlobalSchema).default([]),
   updatedByUserId: z.string().trim().optional(),
+  workItemId: z.string().trim().optional(),
+  source: z.string().trim().optional(),
 });
 
 const ingestExternalEventSchema = z.object({
@@ -545,6 +547,29 @@ function projectGlobalStorageKey(global) {
     return `g:${global.goalId}:${digest}`;
   }
   return global?.key || '';
+}
+
+function projectGlobalEventPayload(global, { action, workItemId, source, auth } = {}) {
+  const scope = global?.scope === 'goal' && global.goalId ? 'goal' : 'project';
+  return {
+    identity: projectGlobalIdentity(global),
+    key: global?.key || '',
+    label: global?.label || global?.key || '',
+    description: global?.description || null,
+    isSecret: Boolean(global?.isSecret),
+    required: global?.required !== false,
+    createTaskOnMissing: global?.createTaskOnMissing !== false,
+    category: global?.category || null,
+    scope,
+    goalId: scope === 'goal' ? global.goalId : null,
+    configured: Boolean(global?.value),
+    action,
+    source: source || null,
+    workItemId: workItemId || null,
+    actorMemberId: auth?.type === 'runtime' ? auth.token.memberId : null,
+    actorRuntimeId: auth?.type === 'runtime' ? auth.token.runtimeId : null,
+    authType: auth?.type || null,
+  };
 }
 
 function globalsForStoredSettings(globals) {
@@ -1785,6 +1810,27 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
   const existingSettings = project.settings && typeof project.settings === 'object' && !Array.isArray(project.settings)
     ? project.settings
     : {};
+  const existingGlobals = await resolveProjectGlobals(projectId, existingSettings);
+  if (input.workItemId) {
+    const workItem = await prisma.projectWorkItem.findFirst({
+      where: { id: input.workItemId, projectId },
+      select: { id: true },
+    });
+    if (!workItem) {
+      throw badRequest('Work item not found in project');
+    }
+  }
+  const existingGlobalIdentities = new Set(existingGlobals.map((entry) => projectGlobalIdentity(entry)).filter(Boolean));
+  const createdGlobals = globals.filter((global) => !existingGlobalIdentities.has(projectGlobalIdentity(global)));
+  const updatedGlobals = globals.filter((global) => existingGlobalIdentities.has(projectGlobalIdentity(global)));
+  const globalEventPayloads = globals.map((global) =>
+    projectGlobalEventPayload(global, {
+      action: existingGlobalIdentities.has(projectGlobalIdentity(global)) ? 'updated' : 'created',
+      workItemId: input.workItemId,
+      source: input.source,
+      auth,
+    }),
+  );
   const nextSettings = {
     ...existingSettings,
     projectGlobals: globalsForStoredSettings(globals),
@@ -1859,8 +1905,30 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
       actorUserId,
       payload: {
         keys: globals.map((global) => global.key),
+        identities: globals.map((global) => projectGlobalIdentity(global)),
+        createdKeys: createdGlobals.map((global) => global.key),
+        updatedKeys: updatedGlobals.map((global) => global.key),
+        createdIdentities: createdGlobals.map((global) => projectGlobalIdentity(global)),
+        updatedIdentities: updatedGlobals.map((global) => projectGlobalIdentity(global)),
+        variables: globalEventPayloads,
+        createdVariables: globalEventPayloads.filter((entry) => entry.action === 'created'),
+        updatedVariables: globalEventPayloads.filter((entry) => entry.action === 'updated'),
+        source: input.source || null,
+        workItemId: input.workItemId || null,
+        actorMemberId: auth.type === 'runtime' ? auth.token.memberId : null,
+        actorRuntimeId: auth.type === 'runtime' ? auth.token.runtimeId : null,
       },
     });
+    for (const payload of globalEventPayloads) {
+      await appendProjectEvent(tx, {
+        projectId,
+        type: 'PROJECT_GLOBAL_WRITTEN',
+        refType: 'PROJECT_GLOBAL',
+        refId: payload.identity,
+        actorUserId,
+        payload,
+      });
+    }
   });
 
   const resolved = await resolveProjectGlobals(projectId, nextSettings);
@@ -2009,14 +2077,20 @@ app.get('/v1/projects/:projectId/events', async (request) => {
       ...(query.sinceSeq !== undefined ? { seq: { gt: query.sinceSeq } } : {}),
       ...(query.types.length ? { type: { in: query.types } } : {}),
     },
-    include: {
-      actorUser: { select: { id: true, email: true, displayName: true, role: true } },
-    },
     orderBy: { seq: 'desc' },
     take: query.limit,
   });
 
   const chronological = events.reverse();
+  const actorUserIds = [...new Set(chronological.map((event) => event.actorUserId).filter(Boolean))];
+  const actorUsers = actorUserIds.length
+    ? await prisma.user.findMany({
+      where: { id: { in: actorUserIds } },
+      select: { id: true, email: true, displayName: true, role: true },
+    })
+    : [];
+  const actorUserById = new Map(actorUsers.map((user) => [user.id, user]));
+
   return {
     projectId,
     events: chronological.map((event) => ({
@@ -2026,7 +2100,7 @@ app.get('/v1/projects/:projectId/events', async (request) => {
       refType: event.refType,
       refId: event.refId,
       payload: event.payload,
-      actor: event.actorUser,
+      actor: event.actorUserId ? actorUserById.get(event.actorUserId) || null : null,
       createdAt: event.createdAt,
     })),
     lastSeq: chronological.at(-1)?.seq ?? query.sinceSeq ?? 0,
