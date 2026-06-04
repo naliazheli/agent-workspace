@@ -3,6 +3,118 @@
   "label": "Default Project Template",
   "description": "Default project template shipped with agent-workspace. Composes the standard agent role library (owner + lead + planner/worker/review/security/pm/integrator) and declares the default project variable schema. New AgentCraft projects use this template unless another is selected.",
   "version": "0.1",
+  "workItemStatusFlow": {
+    "initialStatus": "READY",
+    "activeStatus": "IN_PROGRESS",
+    "assignmentCompletedStatus": "IN_REVIEW",
+    "assignmentFailedStatus": "NEEDS_REVISION",
+    "reviewApprovedStatus": "ACCEPTED",
+    "reviewChangesRequestedStatus": "NEEDS_REVISION",
+    "reviewRejectedStatus": "REJECTED",
+    "closedStatus": "CANCELLED",
+    "statuses": [
+      {
+        "id": "READY",
+        "label": "待领取",
+        "category": "claimable",
+        "initial": true
+      },
+      {
+        "id": "ASSIGNED",
+        "label": "已分配",
+        "category": "active"
+      },
+      {
+        "id": "IN_PROGRESS",
+        "label": "处理中",
+        "category": "active"
+      },
+      {
+        "id": "IN_REVIEW",
+        "label": "待反馈",
+        "category": "feedback"
+      },
+      {
+        "id": "NEEDS_REVISION",
+        "label": "需修改",
+        "category": "claimable"
+      },
+      {
+        "id": "ACCEPTED",
+        "label": "完成",
+        "category": "completed",
+        "terminal": true,
+        "completed": true
+      },
+      {
+        "id": "REJECTED",
+        "label": "关闭",
+        "category": "closed",
+        "terminal": true,
+        "closed": true
+      },
+      {
+        "id": "CANCELLED",
+        "label": "关闭",
+        "category": "closed",
+        "terminal": true,
+        "closed": true
+      }
+    ],
+    "dispatchRules": [
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["INTAKE", "PLANNING"],
+        "role": "PLANNER_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Turn an intake or planning item into concrete goals, feature groups, and executable work items."
+      },
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["SECURITY_REVIEW"],
+        "role": "SECURITY_AUDITOR",
+        "maxAgents": 2,
+        "forceLaunchNew": true,
+        "objective": "Audit the referenced implementation, artifact, or plan for security risks and report concrete findings."
+      },
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["REPORT", "INTEGRATION", "DELIVERY"],
+        "role": "INTEGRATOR_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Prepare or connect accepted work to the requested delivery, external system, report, CI, release, or handoff."
+      },
+      {
+        "statuses": ["IN_REVIEW"],
+        "role": "REVIEW_AGENT",
+        "maxAgents": 3,
+        "forceLaunchNew": false,
+        "objective": "Review the completed handoff against the work item's acceptance criteria and requested evidence."
+      },
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "role": "WORKER_AGENT",
+        "maxAgents": 10,
+        "forceLaunchNew": false,
+        "objective": "Execute the scoped work item, write required artifacts, verify the result, and hand it off for review."
+      }
+    ],
+    "coordinator": {
+      "enabled": true,
+      "minAgents": 0,
+      "maxAgents": 10,
+      "maxDispatchesPerTick": 3,
+      "maxAgentsByRole": {
+        "PLANNER_AGENT": 2,
+        "WORKER_AGENT": 10,
+        "REVIEW_AGENT": 3,
+        "SECURITY_AUDITOR": 2,
+        "INTEGRATOR_AGENT": 2
+      }
+    }
+  },
   "roles": [
     {
       "role": "OWNER",
@@ -10,6 +122,12 @@
       "auto": "OWNER",
       "launchable": false,
       "description": "Human project owner. Created from the user who creates the project."
+    },
+    {
+      "role": "COORDINATOR",
+      "launchable": false,
+      "label": "协调者",
+      "description": "System default role that reads template work-item status rules, project/member capacity, and model API availability, then dispatches matching launchable roles."
     },
     {
       "role": "LEAD_AGENT",

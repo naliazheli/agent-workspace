@@ -4,6 +4,120 @@
   "description": "Contract-review project template based on external/ai-legal-claude. Adds launchable legal specialist roles for clause analysis, risk scoring, compliance, obligations mapping, and recommendations.",
   "version": "0.1",
   "projectFileFolders": ["待审核", "待复审核", "审核报告", "已归档"],
+  "workItemStatusFlow": {
+    "initialStatus": "READY",
+    "activeStatus": "IN_PROGRESS",
+    "assignmentCompletedStatus": "IN_REVIEW",
+    "assignmentFailedStatus": "NEEDS_REVISION",
+    "reviewApprovedStatus": "ACCEPTED",
+    "reviewChangesRequestedStatus": "NEEDS_REVISION",
+    "reviewRejectedStatus": "REJECTED",
+    "closedStatus": "CANCELLED",
+    "statuses": [
+      {
+        "id": "READY",
+        "label": "待领取",
+        "category": "claimable",
+        "initial": true
+      },
+      {
+        "id": "ASSIGNED",
+        "label": "已分配",
+        "category": "active"
+      },
+      {
+        "id": "IN_PROGRESS",
+        "label": "处理中",
+        "category": "active"
+      },
+      {
+        "id": "IN_REVIEW",
+        "label": "待反馈",
+        "category": "feedback"
+      },
+      {
+        "id": "NEEDS_REVISION",
+        "label": "需修改",
+        "category": "claimable"
+      },
+      {
+        "id": "ACCEPTED",
+        "label": "完成",
+        "category": "completed",
+        "terminal": true,
+        "completed": true
+      },
+      {
+        "id": "REJECTED",
+        "label": "关闭",
+        "category": "closed",
+        "terminal": true,
+        "closed": true
+      },
+      {
+        "id": "CANCELLED",
+        "label": "关闭",
+        "category": "closed",
+        "terminal": true,
+        "closed": true
+      }
+    ],
+    "dispatchRules": [
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["LEGAL_CLAUSE_REVIEW", "LEGAL_FIRST_REVIEW", "CONTRACT_CLAUSE_REVIEW"],
+        "role": "LEGAL_CLAUSE_AGENT",
+        "maxAgents": 3,
+        "forceLaunchNew": false,
+        "objective": "Perform the first-pass contract clause review from the assigned source file and write the requested shared first-review artifact."
+      },
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["LEGAL_RISK_REVIEW"],
+        "role": "LEGAL_RISK_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Score contract risks from the assigned contract or first-pass review and write structured risk notes."
+      },
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["LEGAL_COMPLIANCE_REVIEW"],
+        "role": "LEGAL_COMPLIANCE_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Check compliance and jurisdiction-dependent concerns from the assigned contract context."
+      },
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["LEGAL_TERMS_REVIEW"],
+        "role": "LEGAL_TERMS_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Map obligations, deadlines, triggers, renewal windows, and remedies from the assigned contract."
+      },
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["LEGAL_RECOMMENDATIONS", "LEGAL_FINAL_REPORT", "LEGAL_SECOND_REVIEW"],
+        "role": "LEGAL_RECOMMENDATIONS_AGENT",
+        "maxAgents": 3,
+        "forceLaunchNew": false,
+        "objective": "Synthesize the original contract and first-pass findings into the owner-facing final review report."
+      }
+    ],
+    "coordinator": {
+      "enabled": true,
+      "minAgents": 0,
+      "maxAgents": 8,
+      "maxDispatchesPerTick": 3,
+      "maxAgentsByRole": {
+        "LEGAL_CLAUSE_AGENT": 3,
+        "LEGAL_RISK_AGENT": 2,
+        "LEGAL_COMPLIANCE_AGENT": 2,
+        "LEGAL_TERMS_AGENT": 2,
+        "LEGAL_RECOMMENDATIONS_AGENT": 3
+      }
+    }
+  },
   "roles": [
     {
       "role": "OWNER",
@@ -13,12 +127,18 @@
       "description": "Human project owner. Provides contract files, business context, jurisdiction, risk tolerance, and final decisions."
     },
     {
+      "role": "COORDINATOR",
+      "launchable": false,
+      "label": "协调者",
+      "description": "System default role that reads legal contract review status rules, project/member capacity, and model API availability, then dispatches matching legal specialist roles."
+    },
+    {
       "role": "LEAD_AGENT",
       "ref": "role://lead-agent",
       "auto": "ON_CREATE",
       "launchable": false,
       "description": "Coordinates the legal review project, decomposes work, dispatches specialist roles, and assembles the final owner-facing report.",
-      "initialPrompt": "You are the LEAD_AGENT for a contract review project. Treat project shared files as folder-like queues backed by agent-workspace project files. The default folders are `待审核/` for owner-uploaded contracts waiting for first review, `待复审核/` for first-pass outputs waiting for second review, `审核报告/` for owner-facing final reports, and `已归档/` for source files that have completed the workflow. On every fresh pass or polling wake, call project-file-list with prefix `待审核/` and recursive=false. If it contains files, create one READY work item per source file for `LEGAL_CLAUSE_AGENT`, put the exact source file in `inputPacket.projectFiles`, and dispatch or launch that role. The first reviewer must read the source file, produce a structured preliminary review, and write its output under `待复审核/<source-name>-初审.md` with `project-file-write`. When `待复审核/` contains first-pass files, create and dispatch a second review item to `LEGAL_RECOMMENDATIONS_AGENT` with both the original source file and first-pass file in `inputPacket.projectFiles`. The second reviewer must produce an owner-facing report under `审核报告/<source-name>-审核报告.md`, include a visible non-lawyer disclaimer, summarize high/medium/low risks, negotiation points, obligations, missing context, and recommended owner actions. After the final report exists, create or update an owner-owned review/decision work item that points to the report path, so the owner can see and process their item. Do not claim a file has been reviewed unless the report has been written to `审核报告/`. Keep file paths exact and project-relative, and never paste short-lived download URLs into memory or work-item durable context.",
+      "initialPrompt": "You are the LEAD_AGENT for a contract review project. Treat project shared files as folder-like queues backed by agent-workspace project files. The default folders are `待审核/` for owner-uploaded contracts waiting for first review, `待复审核/` for first-pass outputs waiting for second review, `审核报告/` for owner-facing final reports, and `已归档/` for source files that have completed the workflow. On every fresh pass or polling wake, call project-file-list with prefix `待审核/` and recursive=false. If it contains files, create one READY work item per source file with workType LEGAL_CLAUSE_REVIEW, put the exact source file in `inputPacket.projectFiles`, and leave it for the COORDINATOR to dispatch to `LEGAL_CLAUSE_AGENT`; do not call runtime-dispatch yourself while the template coordinator is enabled. The first reviewer must read the source file, produce a structured preliminary review, and write its output under `待复审核/<source-name>-初审.md` with `project-file-write`. When `待复审核/` contains first-pass files, create one READY work item with workType LEGAL_RECOMMENDATIONS for `LEGAL_RECOMMENDATIONS_AGENT` with both the original source file and first-pass file in `inputPacket.projectFiles`, then leave it for the COORDINATOR. The second reviewer must produce an owner-facing report under `审核报告/<source-name>-审核报告.md`, include a visible non-lawyer disclaimer, summarize high/medium/low risks, negotiation points, obligations, missing context, and recommended owner actions. After the final report exists, create or update an owner-owned review/decision work item that points to the report path, so the owner can see and process their item. Do not claim a file has been reviewed unless the report has been written to `审核报告/`. Keep file paths exact and project-relative, and never paste short-lived download URLs into memory or work-item durable context.",
       "polling": {
         "enabled": true,
         "strategy": "IDLE_ONLY",

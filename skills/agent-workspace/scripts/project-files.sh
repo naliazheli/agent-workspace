@@ -42,17 +42,28 @@ project-file-write() {
   project_file_env
   local file_path="${1:?path is required}"
   local source="${2:-}"
-  local content
   if [ -n "$source" ] && [ -f "$source" ]; then
-    content="$(cat "$source")"
+    local size
+    size="$(wc -c < "$source" | tr -d ' ')"
+    if [ "${size:-0}" -gt 750000 ]; then
+      curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files/upload" \
+        -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
+        -F "path=$file_path" \
+        -F "file=@$source"
+      return
+    fi
+    node -e 'const fs=require("fs"); process.stdout.write(JSON.stringify({ path: process.argv[1], content: fs.readFileSync(process.argv[2], "utf8"), encoding: "text" }))' "$file_path" "$source" |
+      curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files/write" \
+        -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
+        -H "Content-Type: application/json" \
+        --data-binary @-
   else
-    content="$(cat)"
+    node -e 'const fs=require("fs"); process.stdout.write(JSON.stringify({ path: process.argv[1], content: fs.readFileSync(0, "utf8"), encoding: "text" }))' "$file_path" |
+      curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files/write" \
+        -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
+        -H "Content-Type: application/json" \
+        --data-binary @-
   fi
-  node -e 'process.stdout.write(JSON.stringify({ path: process.argv[1], content: process.argv[2], encoding: "text" }))' "$file_path" "$content" |
-    curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files/write" \
-      -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
-      -H "Content-Type: application/json" \
-      --data-binary @-
 }
 
 project-file-upload() {

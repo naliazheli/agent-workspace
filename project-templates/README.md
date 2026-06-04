@@ -34,6 +34,14 @@ A template bundles:
   should exist as soon as a project is created. AgentCraft passes these through
   to `agent-workspace`, and `agent-workspace` initializes them in project shared
   storage with folder marker objects.
+- **`workItemStatusFlow`** - template-owned work-item status semantics and
+  automatic dispatch rules. Every template should provide an initial claimable
+  status, a feedback/waiting status, a completed terminal status, and a closed
+  terminal status. The optional `coordinator` block and `dispatchRules` let the
+  host coordinator map unassigned items in specific statuses/work types to
+  launchable roles, agent counts, launch mode, and agent type. Coordinator
+  activity is recorded as project events such as `COORDINATOR_DISPATCHED_ITEM`,
+  `COORDINATOR_BLOCKED`, and `COORDINATOR_IDLE`.
 
 ## Layout
 
@@ -87,9 +95,13 @@ assessment, compliance, obligations mapping, and recommendations.
 HackerOne BBP research. It requires owner-provided `hackerone_username` and
 `hackerone_api_token` project globals, records analyzed opportunities in shared
 project files, creates one goal per promising program or asset group, and then
-dispatches local planner/worker agents with scoped HackerOne context. Goal-level
-target credentials should be requested through owner resource work items so
-future runtimes receive them as `PROJECT_GLOBAL_*` environment variables.
+dispatches local planner/worker agents with scoped HackerOne context. Discovery
+agents must first read `analysed/` and skip project/program URLs already
+recorded there; every evaluated candidate appends a record to
+`analysed/project-addresses.jsonl` so later passes do not restart from the same
+programs. Goal-level target credentials should be requested through owner
+resource work items so future runtimes receive them as `PROJECT_GLOBAL_*`
+environment variables.
 
 ## Status
 

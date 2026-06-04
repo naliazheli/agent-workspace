@@ -5,6 +5,7 @@ Use this skill when a project is created from a HackerOne bounty task, when an o
 ## Operating Boundary
 
 - Work only on the exact program and structured scope named in the assignment packet.
+- Treat every assignment as independent unless the packet explicitly says `sameGoalContinuation` or `allowWorkerReuse`. On a new program or goal, ignore prior target conclusions in the conversation, re-read the current assignment packet and referenced project files, and write artifacts only under the current program's `evidence/<handle>/` and `coverage/<handle>/` paths. If fresh worker capacity is unavailable for an independent program, surface an owner capacity/settings blocker instead of reusing an idle worker from another target.
 - Treat every out-of-scope exclusion, platform-standard deviation, required header, account rule, and safe-testing note as a hard constraint.
 - Do not perform destructive testing, denial-of-service, spam, credential attacks, social engineering, or tests against third-party services unless the assignment explicitly authorizes them.
 - If the task packet is missing a required account, credential, test role, asset, or authorization detail, stop and report the blocker instead of guessing.
@@ -15,14 +16,17 @@ Use this skill when a project is created from a HackerOne bounty task, when an o
 
 For projects created from the `hackerone-opportunity-research` template:
 
-1. Start from `https://hackerone.com/opportunities/all`, HackerOne API data available through the configured owner credentials, public program profiles, and prior project files.
-2. Before analyzing a candidate, read durable exclusion records from `opportunities/analyzed.md`, `opportunities/analyzed.jsonl`, `programs/`, `coverage/`, and `submissions/`. Skip previously analyzed handles/assets unless a new update materially changes scope, reward, policy, or available test access.
-3. Prefer targets that an agent can verify quickly and safely: web apps, public APIs, SDK/npm packages, OAuth/callback logic, popup or `postMessage` flows, webhooks, auth boundaries, multi-tenant object access, and dashboard/API inconsistencies.
-4. Deprioritize mobile-only, hardware, thick-client, KYC/payment-heavy, real-funds, social-engineering, spam, DoS, destructive, vague, or strict-automation-ban targets unless the owner has provided exact authorization and setup.
-5. Score each candidate 0-2 on scope clarity, setup speed, local repeatability, impact surface, prior-art usefulness, and safety. Prefer 8+ out of 12; defer below 6 unless the owner has special access or context.
-6. Sort by strong autonomous-agent fit first, then recent scope/program updates, bounty eligibility, clear web/API/SDK/OAuth/multi-tenant assets, public docs/OpenAPI/npm/source-map hints, manageable account setup, and safe-harbor clarity.
-7. Write every analyzed candidate to project shared files before creating new goals. Include date, handle, program URL, assets considered, score, decision, reasons, exclusions, duplicate/prior-art notes, and whether it was converted into a goal.
-8. For selected targets, create one project goal per program or tightly related asset group. The goal must include the HackerOne program URL, target handles/assets, scoring rationale, safe-test constraints, likely bug classes, required owner resources, and worker start context.
+1. Start from `https://hackerone.com/opportunities/all`, HackerOne API data available through the configured owner credentials, public program profiles, and prior project files. Prefer REST with HackerOne Basic Auth for program data, for example `https://api.hackerone.com/v1/hackers/programs?page%5Bsize%5D=100`; an unauthenticated REST 401 is expected and should not be treated as credential failure. The public HackerOne GraphQL endpoint at `https://hackerone.com/graphql` may expose opportunity search metadata, but can return generic errors for broad opportunity queries; use it as a fallback and query incrementally. Use short command-level network timeouts such as `curl --max-time 20` and retry narrowly; do not let one external request block the whole turn.
+2. Treat `h1_opportunity_batch_limit` as a hard end-to-end analysis cap. It limits the number of new candidate programs whose detail pages, structured scopes, policy text, scoring records, and goal decisions may be fetched or evaluated in this assignment. You may fetch one compact listing page to find candidates, but after filtering already analyzed handles, choose at most the batch-limit candidates before fetching per-program details. Do not enrich or loop over dozens of programs just to rank a batch of five; record the remaining handles as not-yet-analyzed backlog and finish the bounded pass.
+3. Before analyzing a candidate, read durable exclusion records from `analysed/`, `opportunities/analyzed.md`, `opportunities/analyzed.jsonl`, `programs/`, `coverage/`, and `submissions/`. Treat every HackerOne project/program URL in `analysed/` as already evaluated. Skip previously analyzed project URLs, handles, or assets unless a new update materially changes scope, reward, policy, or available test access.
+4. Prefer targets that an agent can verify quickly and safely: web apps, public APIs, SDK/npm packages, OAuth/callback logic, popup or `postMessage` flows, webhooks, auth boundaries, multi-tenant object access, and dashboard/API inconsistencies.
+5. Deprioritize mobile-only, hardware, thick-client, KYC/payment-heavy, real-funds, social-engineering, spam, DoS, destructive, vague, or strict-automation-ban targets unless the owner has provided exact authorization and setup.
+6. Score each candidate 0-2 on scope clarity, setup speed, local repeatability, impact surface, prior-art usefulness, and safety. Prefer 8+ out of 12; defer below 6 unless the owner has special access or context.
+7. Sort by strong autonomous-agent fit first, then recent scope/program updates, bounty eligibility, clear web/API/SDK/OAuth/multi-tenant assets, public docs/OpenAPI/npm/source-map hints, manageable account setup, and safe-harbor clarity.
+8. Write every analyzed candidate to project shared files before creating new goals. Append a JSONL record to `analysed/project-addresses.jsonl` for every evaluated project URL, even when the decision is `SKIP`, `DEFER`, or `DUPLICATE`. Include date, normalized `projectUrl`, handle, source URL, decision, score when available, and a short reason. Before writing, merge against the existing file by normalized `projectUrl`; never append the same URL twice in one pass or duplicate a URL that is already recorded. Also write the richer analysis record to `opportunities/analyzed.jsonl` with date, handle, program URL, assets considered, score, decision, reasons, exclusions, duplicate/prior-art notes, and whether it was converted into a goal. For project files, prefer `. /opt/data/skills/agent-workspace/scripts/project-files.sh` plus `project-file-list`, `project-file-read`, and `project-file-write`; if calling HTTP directly, list via `GET /v1/projects/{projectId}/files?prefix=analysed/&recursive=true` and `GET /v1/projects/{projectId}/files?prefix=opportunities/&recursive=true`, not `/files/list`. Do not leave `analysed/project-addresses.jsonl` or `opportunities/analyzed.jsonl` only under `/opt/data/workspace`; local staging is acceptable only when synced to the same project shared paths after each candidate or small batch and verified before assignment completion.
+9. For selected targets, create one project goal per program or tightly related asset group. Keep goal creation intentionally sparse: unless the owner configured a different limit, create at most 3-5 top target goals per discovery pass and record the rest as `CONSIDER` or `DEFER` in `opportunities/analyzed.jsonl`. The goal must include the HackerOne program URL, target handles/assets, scoring rationale, safe-test constraints, likely bug classes, required owner resources, and worker start context.
+
+When scoring structured scopes from the HackerOne REST API, normalize `asset_type` case before classification. Common values are uppercase, such as `URL`, `API`, `WILDCARD`, `SOURCE_CODE`, `APPLE_STORE_APP_ID`, `GOOGLE_PLAY_APP_ID`, `DOWNLOADABLE_EXECUTABLES`, and `OTHER`; treat eligible `URL`, `API`, and `WILDCARD` assets as the strongest fit for local agents, while mobile-only, executable-only, hardware, payment/KYC-heavy, or broad `OTHER` scopes need additional justification before selection.
 
 ## Required Context
 
@@ -48,12 +52,14 @@ Read the assignment packet before acting. A complete HackerOne task project shou
 
 ## Goal-Level Resources
 
-Workers should not ask the owner to paste target credentials into chat. When a goal needs program-specific resources, create an owner-owned resource work item with `inputPacket.resourceRequest` and block dependent worker items on it.
+Workers should not ask the owner to paste target credentials into chat. When a goal needs program-specific resources, create an owner-owned resource work item with `inputPacket.resourceRequest` and block dependent worker items on it. Do this before marking the current assignment complete when the missing resource is discovered during a handoff; do not merely list the blocker in prose.
 
 Use stable lowercase keys scoped to the goal, for example:
 
 - `h1_goal_<program_handle>_account_a_email`
+- `h1_goal_<program_handle>_account_a_password`
 - `h1_goal_<program_handle>_account_b_email`
+- `h1_goal_<program_handle>_account_b_password`
 - `h1_goal_<program_handle>_account_a_bearer`
 - `h1_goal_<program_handle>_account_b_bearer`
 - `h1_goal_<program_handle>_api_key`
@@ -61,13 +67,34 @@ Use stable lowercase keys scoped to the goal, for example:
 
 Set `category` to `hackerone-goal`, `isSecret: true` for tokens/cookies/API keys/secrets, `required: true`, `createTaskOnMissing: true`, and `value: ""`. When the owner fills and completes the item, the host saves it as a project global and future runtimes receive it as `PROJECT_GLOBAL_H1_GOAL_<PROGRAM_HANDLE>_<RESOURCE_NAME>`.
 
+Each `inputPacket.resourceRequest` maps to exactly one project global. If a test account requires an email, username, password, OTP seed, tenant id, or bearer cookie, create separate resource-request work items for each required key. Do not create only the email item and mention the password or second account only in `acceptanceCriteria`.
+
+Use the agent-workspace work-item API with the runtime token:
+
+```bash
+source /opt/data/AGENT_WORKSPACE_RUNTIME.env
+curl -sS --max-time 20 -X POST "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/work-items" \
+  -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @resource-request.json
+```
+
+The JSON body should use `title: "Resource Request: <resource label>"`, `workType: "INTEGRATION"`, `status: "READY"`, the current `goalId`, high `priority`, and `inputPacket.resourceRequest`. Do not leave the title as only `Resource Request:`; the visible title must include the label or key so the owner can distinguish items in the UI. The workspace service automatically assigns owner ownership for resource-request packets. If creation fails, add a visible runtime comment on the current work item naming the exact resource keys that are blocking follow-up validation.
+
 If a resource is optional, mark it non-required or create the worker task with an explicit no-resource fallback. Do not dispatch validation that depends on missing resources.
+
+When splitting phases, keep unauthenticated/passive work separate from authenticated validation. Do not dispatch an item titled or scoped as "Authenticated Testing" until the required owner resource items are `ACCEPTED` or the corresponding globals are visible. If passive follow-up can proceed without credentials, create a distinct passive/deep-recon item that excludes credential-dependent steps.
+
+Treat Phase 1 findings as candidates until independently validated. In follow-up work items and handoffs, avoid unverified severity labels such as "CRITICAL" except when a reproducible impact proof has already been captured and accepted. Prefer wording such as "candidate CORS issue requiring exploitability validation" or "possible information disclosure requiring scope and impact confirmation"; final severity belongs after auditor review. Do not call CORS, security-header, cache, redirect, version-banner, or public unauthenticated error behavior a vulnerability unless the evidence proves sensitive data exposure, authorization bypass, cross-tenant access, meaningful state change, or another concrete in-scope impact. Record routine header/CORS observations as reconnaissance notes or follow-up hypotheses, not report-ready findings.
+
+Do not ask agents to solve CAPTCHAs, bypass anti-abuse barriers, evade bot detection, or perform account-creation automation against CAPTCHA/OTP flows. Do not submit synthetic telemetry, fake Sentry events, fake support tickets, fake error reports, webhook spam, email/SMS traffic, or other third-party side-effect probes unless the owner explicitly approves a safe, program-allowed validation path. Record CAPTCHA, OTP, KYC, payment, geo-blocking, bot-defense, and side-effect barriers as owner/resource blockers or scope limitations.
 
 ## Project Shared Files
 
 Use project shared files for durable state:
 
 - `opportunities/`: analyzed opportunity records and ranking decisions.
+- `analysed/`: durable project/program URL exclusion records. `analysed/project-addresses.jsonl` is the canonical append-only list of evaluated HackerOne project URLs used to avoid re-analyzing the same program on later discovery passes.
 - `programs/<handle>.md` or `.json`: program policy, scope, assets, exclusions, reward notes, and report template.
 - `coverage/<handle>/`: tested areas, skipped areas, duplicate/prior-art reductions, and false-positive lessons.
 - `evidence/<handle>/`: sanitized evidence only.

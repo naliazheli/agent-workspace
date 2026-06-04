@@ -36,7 +36,7 @@ const envSchema = z.object({
 
 const env = envSchema.parse(process.env);
 const prisma = new PrismaClient();
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: 25 * 1024 * 1024 });
 await app.register(multipart, {
   limits: {
     fileSize: 100 * 1024 * 1024,
@@ -269,6 +269,13 @@ const workItemListQuerySchema = z.object({
   goalId: z.string().trim().optional(),
   featureId: z.string().trim().optional(),
   ownerId: z.string().trim().optional(),
+  includeClosed: booleanQuerySchema.default(false),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+const goalListQuerySchema = z.object({
+  status: z.string().trim().optional(),
   includeClosed: booleanQuerySchema.default(false),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -618,7 +625,7 @@ function sanitizeProjectGlobals(globals, { includeValues = false } = {}) {
     category: entry.category || null,
     scope: entry.scope === 'goal' && entry.goalId ? 'goal' : 'project',
     goalId: entry.scope === 'goal' && entry.goalId ? entry.goalId : null,
-    configured: Boolean(entry.value),
+    configured: Boolean(entry.configured || entry.value),
     ...(includeValues ? { value: entry.value || '' } : {}),
   }));
 }
@@ -690,6 +697,7 @@ async function resolveProjectGlobals(projectId, settings) {
       scope: configured?.scope ?? fromRecord?.scope ?? 'project',
       goalId: configured?.goalId ?? fromRecord?.goalId ?? null,
       value,
+      configured: Boolean(record || value),
     };
   });
 }
@@ -854,6 +862,51 @@ async function initializeProjectFileFolders(projectId, actorUserId, folders) {
   });
 
   return createdFolders;
+}
+
+function projectFolderInitializationTimeoutMs() {
+  const raw = Number.parseInt(process.env.PROJECT_FOLDER_INITIALIZATION_TIMEOUT_MS || '5000', 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 5000;
+}
+
+async function initializeProjectFileFoldersForCreate(projectId, actorUserId, folders) {
+  const initialization = initializeProjectFileFolders(projectId, actorUserId, folders).catch((error) => {
+    app.log.warn(
+      {
+        projectId,
+        folders,
+        error: error?.message || String(error),
+      },
+      'Project file folder initialization failed after project creation',
+    );
+    return [];
+  });
+  const timeoutMs = projectFolderInitializationTimeoutMs();
+  if (timeoutMs === 0) {
+    return initialization;
+  }
+
+  let completedWithinTimeout = false;
+  const result = await Promise.race([
+    initialization.then((createdFolders) => {
+      completedWithinTimeout = true;
+      return createdFolders;
+    }),
+    new Promise((resolve) => setTimeout(() => resolve([]), timeoutMs)),
+  ]);
+
+  if (!completedWithinTimeout) {
+    app.log.warn(
+      {
+        projectId,
+        folders,
+        timeoutMs,
+      },
+      'Project file folder initialization is continuing in the background',
+    );
+  }
+
+  return result;
 }
 
 function projectFileName(filePath) {
@@ -1554,7 +1607,7 @@ app.post('/v1/projects', async (request) => {
     return { createdProject, ownerMember, leadMember, initialGoal };
   });
 
-  const initializedProjectFileFolders = await initializeProjectFileFolders(
+  const initializedProjectFileFolders = await initializeProjectFileFoldersForCreate(
     project.createdProject.id,
     owner.id,
     initialProjectFileFolders,
@@ -1997,7 +2050,7 @@ app.get('/v1/projects/:projectId/board', async (request) => {
       },
       select: goalSelect,
       orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-      take: Math.min(5, query.goalLimit),
+      take: query.goalLimit,
     }),
     prisma.projectWorkItem.findMany({
       where: {
@@ -2088,6 +2141,48 @@ app.get('/v1/projects/:projectId/board', async (request) => {
     workItemSummaries: workItems,
     inboxSummary: inboxItems,
   };
+});
+
+app.get('/v1/projects/:projectId/goals', async (request) => {
+  const { projectId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_BOARD_READ' });
+  await getProjectOrThrow(projectId);
+
+  const query = goalListQuerySchema.parse(request.query ?? {});
+  const where = {
+    projectId,
+    ...(query.status ? { status: query.status } : {}),
+    ...(!query.status ? nonClosedGoalWhere(query.includeClosed) : {}),
+  };
+  const [goals, total] = await Promise.all([
+    prisma.projectGoal.findMany({
+      where,
+      orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      skip: (query.page - 1) * query.limit,
+      take: query.limit,
+    }),
+    prisma.projectGoal.count({ where }),
+  ]);
+
+  return {
+    data: goals,
+    meta: { total, page: query.page, limit: query.limit, totalPages: Math.ceil(total / query.limit) },
+  };
+});
+
+app.get('/v1/projects/:projectId/goals/:goalId', async (request) => {
+  const { projectId, goalId } = request.params;
+  await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_BOARD_READ' });
+  await getProjectOrThrow(projectId);
+
+  const goal = await prisma.projectGoal.findFirst({
+    where: { id: goalId, projectId },
+  });
+  if (!goal) {
+    throw notFound('Goal not found in project');
+  }
+
+  return { goal };
 });
 
 app.get('/v1/projects/:projectId/events', async (request) => {
@@ -2305,7 +2400,7 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
   const { projectId } = request.params;
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'WORK_ITEM_CREATE' });
   const input = createWorkItemSchema.parse(request.body ?? {});
-  await getProjectOrThrow(projectId);
+  const project = await getProjectOrThrow(projectId);
   await ensureProjectReference(projectId, 'feature', input.featureId);
   await ensureProjectReference(projectId, 'workItem', input.parentWorkItemId);
   const linkedFeature = input.featureId
@@ -2319,6 +2414,7 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
   const actorUserId = await actorUserIdFromAuth(projectId, auth, input.createdByUserId);
   const runtimeMetadata = runtimeMetadataFromAuth(auth);
   const resourceRequestIdentity = resourceRequestIdentityFromPacket(input.inputPacket, goalId);
+  const ownerId = resourceRequestIdentity ? project.ownerId : input.ownerId ?? null;
 
   if (resourceRequestIdentity) {
     const openResourceItems = await prisma.projectWorkItem.findMany({
@@ -2362,7 +2458,7 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
         concurrencyMode: input.concurrencyMode ?? 'SINGLE',
         priority: input.priority ?? 0,
         createdById: actorUserId,
-        ownerId: input.ownerId ?? null,
+        ownerId,
         dueAt: input.dueAt ? new Date(input.dueAt) : null,
       },
     });
@@ -2784,7 +2880,7 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
       },
       select: goalSelect,
       orderBy: [{ priority: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-      take: isLeadRuntime ? 5 : 1,
+      take: isLeadRuntime ? 25 : 1,
     }),
     prisma.projectFeature.findMany({
       where: {
