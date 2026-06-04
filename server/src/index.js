@@ -75,6 +75,36 @@ function resourceRequestIdentityFromPacket(inputPacket, fallbackGoalId = null) {
   return `${isGoalScoped ? 'goal' : 'project'}:${goalId}:${key}`;
 }
 
+function sanitizeWorkItemInputPacket(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => sanitizeWorkItemInputPacket(item));
+
+  const packet = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === 'resourceRequest' && nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const request = { ...nested };
+      if (Object.prototype.hasOwnProperty.call(request, 'value')) {
+        const rawValue = request.value;
+        delete request.value;
+        request.hasValue = typeof rawValue === 'string' ? rawValue.length > 0 : rawValue !== null && rawValue !== undefined;
+      }
+      packet[key] = request;
+      continue;
+    }
+    packet[key] = sanitizeWorkItemInputPacket(nested);
+  }
+  return packet;
+}
+
+function sanitizeWorkItemForResponse(workItem) {
+  if (!workItem || typeof workItem !== 'object') return workItem;
+  return {
+    ...workItem,
+    inputPacket: sanitizeWorkItemInputPacket(workItem.inputPacket),
+  };
+}
+
 const runtimeTokenStringArraySchema = z.preprocess((value) => {
   if (!Array.isArray(value)) return [];
   return value.filter((item) => typeof item === 'string');
@@ -2428,7 +2458,7 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
       (item) => resourceRequestIdentityFromPacket(item.inputPacket, item.goalId) === resourceRequestIdentity,
     );
     if (existingResourceItem) {
-      return { workItemId: existingResourceItem.id, workItem: existingResourceItem, reused: true };
+      return { workItemId: existingResourceItem.id, workItem: sanitizeWorkItemForResponse(existingResourceItem), reused: true };
     }
   }
 
@@ -2480,7 +2510,7 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
     return created;
   });
 
-  return { workItemId: workItem.id, workItem };
+  return { workItemId: workItem.id, workItem: sanitizeWorkItemForResponse(workItem) };
 });
 
 app.get('/v1/projects/:projectId/work-items', async (request) => {
@@ -2508,7 +2538,7 @@ app.get('/v1/projects/:projectId/work-items', async (request) => {
   ]);
 
   return {
-    data: items,
+    data: items.map((item) => sanitizeWorkItemForResponse(item)),
     meta: { total, page: query.page, limit: query.limit, totalPages: Math.ceil(total / query.limit) },
   };
 });
@@ -2525,7 +2555,7 @@ app.get('/v1/projects/:projectId/work-items/:workItemId', async (request) => {
     throw notFound('Work item not found in project');
   }
 
-  return { workItem };
+  return { workItem: sanitizeWorkItemForResponse(workItem) };
 });
 
 app.patch('/v1/projects/:projectId/work-items/:workItemId', async (request) => {
@@ -2565,7 +2595,7 @@ app.patch('/v1/projects/:projectId/work-items/:workItemId', async (request) => {
     return updated;
   });
 
-  return { workItemId: workItem.id, workItem };
+  return { workItemId: workItem.id, workItem: sanitizeWorkItemForResponse(workItem) };
 });
 
 app.post('/v1/projects/:projectId/assignments', async (request) => {
