@@ -205,7 +205,7 @@
       "role": "COORDINATOR",
       "ref": "role://coordinator",
       "launchable": false,
-      "label": "协调者",
+      "label": "COORDINATOR",
       "description": "System default role that reads template work-item status rules, project/member capacity, and model API availability, then dispatches local Docker Pi agents for matching roles."
     },
     {
