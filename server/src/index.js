@@ -2760,6 +2760,30 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
       : input.ownerId ?? null;
 
   if (ownerScopedIdentity) {
+    if (resourceRequestIdentity) {
+      const projectGlobals = await resolveProjectGlobals(projectId, project.settings);
+      const configuredGlobal = projectGlobals.find(
+        (global) =>
+          projectGlobalIdentity(global).toLowerCase() === resourceRequestIdentity &&
+          Boolean(global.configured || global.value),
+      );
+      if (configuredGlobal) {
+        const matchingOwnerItems = await prisma.projectWorkItem.findMany({
+          where: { projectId },
+          orderBy: { createdAt: 'asc' },
+        });
+        const existingOwnerItem = matchingOwnerItems.find(
+          (item) => resourceRequestIdentityFromPacket(item.inputPacket, item.goalId) === resourceRequestIdentity,
+        );
+        return {
+          workItemId: existingOwnerItem?.id ?? null,
+          workItem: existingOwnerItem ? sanitizeWorkItemForResponse(existingOwnerItem) : null,
+          reused: Boolean(existingOwnerItem),
+          alreadyConfigured: true,
+          resourceRequestIdentity,
+        };
+      }
+    }
     const openOwnerItems = await prisma.projectWorkItem.findMany({
       where: {
         projectId,
