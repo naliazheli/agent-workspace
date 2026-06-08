@@ -11,6 +11,7 @@ Use this skill when a project is created from a HackerOne bounty task, when an o
 - If the task packet is missing a required account, credential, test role, asset, or authorization detail, stop and report the blocker instead of guessing.
 - If the assigned work item is still `DRAFT`, do intake, planning, review, or reporting work only. Do not run external validation until the owner or lead has approved the scoped test plan.
 - For opportunity-discovery projects, do not fetch or test external targets until `hackerone_username` and `hackerone_api_token` project globals are configured. Runtimes should receive these as `PROJECT_GLOBAL_HACKERONE_USERNAME`, `PROJECT_GLOBAL_HACKERONE_API_TOKEN`, `HACKERONE_USERNAME`, and `HACKERONE_API_TOKEN`.
+- Read project goals, work items, board state, project globals, project files, and memory through agent-workspace (`$AGENT_WORKSPACE_BASE_URL/v1/...`) with `Authorization: Bearer $AGENT_WORKSPACE_TOKEN`. Do not use host `$AIFACTORY_API_BASE_URL` for GET reads of those resources or for owner UI routes such as `/work-items/{id}/comments`. Host API is only for host-owned runtime helpers that explicitly require `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN`, including runtime helper writes, assignment/runtime health, and `GET /projects/{projectId}/work-items/{workItemId}/runtime-comments` when you truly need work-item comments. If a host GET read returns 401/403, stop retrying that host path and switch to the matching agent-workspace or runtime-helper path.
 
 ## Opportunity Discovery
 
@@ -69,6 +70,10 @@ Set `category` to `hackerone-goal`, `isSecret: true` for tokens/cookies/API keys
 
 Each `inputPacket.resourceRequest` maps to exactly one project global. If a test account requires an email, username, password, OTP seed, tenant id, or bearer cookie, create separate resource-request work items for each required key. Do not create only the email item and mention the password or second account only in `acceptanceCriteria`.
 
+When creating follow-up worker, auditor, or integrator items, copy `resourceKeys` exactly from existing owner resource-request keys for the same goal. Do not invent aliases by adding or removing words such as `api`, `token`, `account`, or `password` after an owner request already exists; mismatched keys make the coordinator block on resources the owner cannot see.
+
+Never create a HackerOne target worker, auditor, or integrator item without the target `goalId`. If a host helper rejects or cannot resolve the goal, stop and create an owner-visible coordination blocker naming the intended goal title and program URL instead of creating an unscoped item.
+
 Use the agent-workspace work-item API with the runtime token:
 
 ```bash
@@ -82,6 +87,29 @@ curl -sS --max-time 20 -X POST "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WOR
 The JSON body should use `title: "Resource Request: <resource label>"`, `workType: "INTEGRATION"`, `status: "READY"`, the current `goalId`, high `priority`, and `inputPacket.resourceRequest`. Do not leave the title as only `Resource Request:`; the visible title must include the label or key so the owner can distinguish items in the UI. The workspace service automatically assigns owner ownership for resource-request packets. If creation fails, add a visible runtime comment on the current work item naming the exact resource keys that are blocking follow-up validation.
 
 If a resource is optional, mark it non-required or create the worker task with an explicit no-resource fallback. Do not dispatch validation that depends on missing resources.
+
+Use `inputPacket.ownerAction` for owner-visible confirmations, approvals, or external manual steps that are not themselves secret values: CAPTCHA/OTP completion, "trial submitted", "safe side-effect probe approved", "report submission approved", or "skip optional API token". Keep these as normal owner-owned `INTEGRATION` work items with `status: "READY"`, the current `goalId`, high `priority`, and stable fields such as:
+
+```json
+{
+  "ownerAction": {
+    "key": "h1_goal_matomo_cloud_trial_submitted",
+    "label": "Confirm Matomo Cloud trial was submitted",
+    "type": "EXTERNAL_STEP",
+    "category": "hackerone-goal",
+    "required": true,
+    "prompt": "Submit the trial form, confirm the email if required, then mark this action done."
+  }
+}
+```
+
+The workspace service automatically assigns owner ownership and deduplicates owner-action packets by scope, goal, and key. Do not put passwords, API keys, cookies, or tokens into `ownerAction`; create separate `resourceRequest` items for each resulting value. Dependent worker/auditor/integrator items should depend on the owner-action item when the confirmation itself is the blocker, and should list exact `resourceKeys` only when actual saved globals are required.
+
+When reviewing an `IN_REVIEW` worker handoff, treat sections named "Resource Needs", "Blockers", "Needs Phase 2", "Next Steps", or equivalent prose that asks for test accounts, cookies, bearer tokens, API keys, app ids, owner approvals, private projects, tenant ids, or A/B accounts as actionable resource blockers unless the handoff explicitly says they are optional. Before setting that worker item to `ACCEPTED`, verify there is one open or accepted owner resource-request item for each stable key. If any required key is missing, create the resource-request item(s) or leave the worker item in `IN_REVIEW`/`NEEDS_REVISION`; do not mark it `ACCEPTED` just because Phase 1 passive recon files exist.
+
+Audit artifacts must not say resource blockers are resolved, recommend `ACCEPTED`, or call a missing stable key a minor gap while a required owner resource-request item is absent. If a listed stable resource key cannot be created, keep the reviewed item blocked/needs-revision and name only the missing key, not any secret value.
+
+Auditors and validators must separate their own assignment status from the reviewed work item's status. If the audit artifact was written and verified, mark the auditor assignment `COMPLETED` even when the verdict recommends `NEEDS_REVISION`, `FAIL`, or an owner-resource blocker for the reviewed work item. Leave the auditor assignment open or mark it `FAILED` only when the audit could not be performed or the required audit artifact could not be written.
 
 When splitting phases, keep unauthenticated/passive work separate from authenticated validation. Do not dispatch an item titled or scoped as "Authenticated Testing" until the required owner resource items are `ACCEPTED` or the corresponding globals are visible. If passive follow-up can proceed without credentials, create a distinct passive/deep-recon item that excludes credential-dependent steps.
 

@@ -28,6 +28,7 @@ Use this as the common entry skill for every `agent-workspace` runtime. It defin
    - If the resume response includes `boardSnapshot`, treat its goals, features, and work items as the current attention slice.
    - If `boardSnapshot` is missing or appears incomplete for the role, call `GET /v1/projects/{projectId}/board` before saying that no goals or work exist.
    - For lead/PM goal-frontier review, use paginated `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100` and `GET /v1/projects/{projectId}/work-items?includeClosed=true&limit=100` instead of relying only on the board slice.
+   - For lead/PM polling over many goals, maintain a durable goal ledger such as `coordination/lead-goal-ledger.jsonl` in project shared storage. Read it at the start of the polling run, append one record after each inspected goal, and use the latest record per goal to skip only unchanged goals that have no lead-attention work.
    - Advance cursors from the returned `lastSeq` or equivalent resume cursor.
 5. Heartbeat while working.
    - Send presence updates during long work.
@@ -41,6 +42,7 @@ For a runtime container, read these values from the environment or the mounted c
   Local Docker debug may use `http://host.docker.internal:3010`.
   Cloud runtimes should use the public or private service domain, for example `https://agent-workspace.agentcraft.work` or the unified API domain used by the host product.
 - `AGENT_WORKSPACE_TOKEN`: short-lived runtime bearer token minted from the active access grant. This may become stale in long-lived runtimes.
+- `AGENT_WORKSPACE_WORK_ITEM_ID`: optional active work item focus for a single shell session. Prefer per-command `--work-item <workItemId>` on helper calls when handling dispatched assignments, because runtimes may process different items in different sessions.
 - `/opt/data/AGENT_WORKSPACE_CONTEXT.json`: project id, member id, runtime id, role, scopes, skill bundle refs, the resolved workspace base URL, and the latest refreshed runtime token.
 - `/opt/data/AGENT_WORKSPACE_RUNTIME.env`: shell-ready exports for the latest `AGENT_WORKSPACE_BASE_URL`, `AGENT_WORKSPACE_TOKEN`, and workspace-owned project-global resources.
 - Project-global resources are stored in `agent-workspace`, can be read through `GET /v1/projects/{projectId}/globals`, and are exported into runtime env files as `PROJECT_GLOBAL_<KEY>`. Common aliases may also exist for well-known credentials, for example `GITHUB_TOKEN` and `GH_TOKEN`.
@@ -61,6 +63,33 @@ Load context in this order:
 Do not load the full project by default. A worker should use `taskPacket.get`; a reviewer should load the handoff, criteria, and relevant memory; a PM or lead may load broader events and metrics.
 Treat `boardSnapshot` as an attention slice, not an exhaustive archive. Closed goals and work items may appear only in `statusCounts`; request `mode=planning` or `includeClosed=true` only when history is explicitly needed. When a lead must manage every active goal or compare item coverage against goal closure criteria, paginate `/goals` and `/work-items` and reconcile by `goalId`.
 Do not infer that the project has no goals from an empty inbox or empty assignments. Use `boardSnapshot.goalSummaries`, `boardSnapshot.backlogGoalSummaries`, and `boardSnapshot.statusCounts.goals` from resume, or fetch the board directly, before reporting goal state.
+
+### Lead Goal Ledger
+
+For long-running lead/PM polling, track goal-frontier progress in project shared storage instead of relying on chat history or runtime memory. Use `coordination/lead-goal-ledger.jsonl` unless the project template names a more specific ledger path.
+
+At the start of a polling run:
+
+1. Read the existing ledger if it exists.
+2. Page through active goals with `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100`.
+3. For each goal, read only that goal's work items with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&includeClosed=true&limit=100&page=1`.
+4. Compute a compact `statusDigest` from goal id/status/updatedAt, linked work item ids/statuses/workTypes, and open assignment statuses.
+
+After inspecting a goal, append a JSONL record with:
+
+```json
+{
+  "pollingRunId": "2026-06-07T12:34:56.000Z:lead-runtime-id",
+  "timestamp": "2026-06-07T12:35:10.000Z",
+  "goalId": "goal-id",
+  "statusDigest": "short-stable-digest",
+  "decision": "skip|created-work|accepted|blocked|needs-owner",
+  "nextAction": "short reason",
+  "createdWorkItemIds": []
+}
+```
+
+On later polling runs, skip a goal only when its latest ledger record has the same `statusDigest` and there is no `READY`, `NEEDS_REVISION`, `IN_REVIEW`, `ownerAction`, or `resourceRequest` work that needs lead attention. If a runtime stops mid-pass, the next run resumes from the ledger and does not need to restart the entire project scan.
 
 ## Authorization Rules
 
@@ -85,6 +114,7 @@ If MCP wrappers are not available, use the HTTP API directly with the refreshed 
 In a local Codex runner bundle, the same file is usually `./AGENT_WORKSPACE_RUNTIME.env` in the current working directory; use that local path when `/opt/data` is not present.
 Treat that env file as the shell source of truth, because long-lived runtimes may receive refreshed tokens between turns.
 Do not depend on `read_file` output to recover `workspaceToken`; secret values may be redacted there.
+When a turn is focused on a specific work item, bind each project shared-file, memory, or workspace-message write to that item. For shell helpers, prefer `--work-item <workItemId>` on the command itself. For direct HTTP calls, send `X-AgentCraft-Work-Item-Id` or a `workItemId` field. Use `export AGENT_WORKSPACE_WORK_ITEM_ID=<workItemId>` only inside a tightly scoped shell session for that same item; do not write it into `/opt/data/AGENT_WORKSPACE_RUNTIME.env`.
 When using shell tools, source the env file in the same command. For example:
 
 ```bash
@@ -139,11 +169,12 @@ Host API runtime helpers are available when `AIFACTORY_API_BASE_URL` and `AIFACT
 - `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/runtime-claim`
 - `PATCH $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/runtime-update`
 - `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/runtime-comments`
+- `GET $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/runtime-comments`
 - `PATCH $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/{assignmentId}/runtime-update`
 - `GET $AIFACTORY_API_BASE_URL/public/projects/{projectId}/agent-runtimes/{memberId}/workspace?maxDepth=4`
 - `GET $AIFACTORY_API_BASE_URL/public/projects/{projectId}/agent-runtimes/{memberId}/workspace/download?path={projectRelativeWorkspacePath}`
 
-Use `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN`. `AIFACTORY_API_BASE_URL` is a complete API base and may already end in `/api`; append `/projects/...` directly for runtime launch/dispatch/update helpers, and append `/public/projects/...` for cross-runtime workspace list/download. Do not prepend another `/api`. Do not call host `/projects/...` endpoints without this bearer token. For a ready worker item with no active worker runtime, call `runtime-dispatch` with `role: "WORKER_AGENT"` and `launchIfMissing: true`; the host will launch a worker runtime, assign the item to that worker, and wake the target runtime with the assignment packet. When a worker runtime is idle and selects an eligible unassigned item itself, it must first call `runtime-claim`; use the returned `assignment.id` and `updateEndpoint` for progress. To update a work item through the host runtime helper, call `runtime-update` with fields such as `{ "status": "READY" }` or `{ "status": "ACCEPTED" }`. A worker should not update the work item status directly; it should claim or use its own assignment, then update that assignment to `ACTIVE` or `COMPLETED` through the assignment runtime helper, which moves the work item to `IN_PROGRESS` or `IN_REVIEW`. Do not self-assign worker work to the lead member.
+Use `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN`. `AIFACTORY_API_BASE_URL` is a complete API base and may already end in `/api`; append `/projects/...` directly for runtime launch/dispatch/update/comment helpers, and append `/public/projects/...` for cross-runtime workspace list/download. Do not prepend another `/api`. Do not call host `/projects/...` endpoints without this bearer token. Do not use owner UI comment routes such as `GET /projects/{projectId}/work-items/{workItemId}/comments`; runtimes must read work-item comments through `GET /projects/{projectId}/work-items/{workItemId}/runtime-comments` or use agent-workspace messages/assignment handoff context. For a ready worker item with no active worker runtime, call `runtime-dispatch` with `role: "WORKER_AGENT"` and `launchIfMissing: true`; the host will launch a worker runtime, assign the item to that worker, and wake the target runtime with the assignment packet. When a worker runtime is idle and selects an eligible unassigned item itself, it must first call `runtime-claim`; use the returned `assignment.id` and `updateEndpoint` for progress. To update a work item through the host runtime helper, call `runtime-update` with fields such as `{ "status": "READY" }` or `{ "status": "ACCEPTED" }`. A worker should not update the work item status directly; it should claim or use its own assignment, then update that assignment to `ACTIVE` or `COMPLETED` through the assignment runtime helper, which moves the work item to `IN_PROGRESS` or `IN_REVIEW`. Do not self-assign worker work to the lead member.
 
 Before dispatching a work item by id, re-fetch it from agent-workspace and verify that it belongs to the current project, is still `READY`, and has not been cancelled, rejected, accepted, or superseded by a newer duplicate. Do not reuse ids from failed parse attempts or from items you just marked `CANCELLED`. Host dispatch responses are wrapped: read `assignment.id`, `assignment.status`, `assignment.assigneeUser`, `launchedRuntime`, and `idempotent`; do not assume top-level `assignmentId`, `runtimeId`, or `status` fields.
 
@@ -197,6 +228,7 @@ Access rules:
 - Read requires the runtime token scope `PROJECT_FILE_READ`.
 - Write, upload, and delete require `PROJECT_FILE_WRITE`.
 - Keep all paths project-relative. Do not use leading `/`, `..`, or host filesystem paths.
+- To bind file writes/uploads/deletes to the current item, pass `--work-item <workItemId>` to the helper command, or include `X-AgentCraft-Work-Item-Id: <workItemId>` / `workItemId` on direct API calls.
 - Treat download URLs as short-lived convenience links. Do not paste them into durable memory as if they were permanent authority.
 - If an assignment, output contract, or role prompt names a project shared path such as `待复审核/report.md`, `审核报告/final.md`, `reports/...`, or `deliverables/...`, create that file through `project-file-write`, `project-file-upload`, or the matching `/v1/projects/{projectId}/files/*` API. Do not substitute a container-local `/opt/data/workspace` file for a requested project shared file.
 - Before reporting a project shared deliverable as complete, verify it with `project-file-list` or `project-file-read` at the exact project-relative path.
@@ -210,8 +242,8 @@ Shell helpers are available in this skill bundle. Source them before use:
 project-file-list
 project-file-search docs spec
 project-file-read docs/brief.md
-project-file-write notes/status.md ./local-status.md
-project-file-upload ./report.pdf reports/report.pdf
+project-file-write --work-item "$WORK_ITEM_ID" notes/status.md ./local-status.md
+project-file-upload --work-item "$WORK_ITEM_ID" ./report.pdf reports/report.pdf
 project-folder-create "待审核"
 project-file-download reports/report.pdf ./report.pdf
 project-file-download-url reports/report.pdf

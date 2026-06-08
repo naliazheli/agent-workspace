@@ -15,6 +15,7 @@ const envSchema = z.object({
   AGENT_WORKSPACE_INTEGRATION_KEY: z.string().optional(),
   AGENT_WORKSPACE_JWT_SECRET: z.string().min(1),
   AGENT_WORKSPACE_TOKEN_TTL_SECONDS: z.coerce.number().default(3600),
+  AGENT_WORKSPACE_RUNTIME_ACTIVE_STALE_SECONDS: z.coerce.number().default(300),
   PROJECT_GLOBAL_SECRET_KEY: z.string().optional(),
   PROJECT_SECRET_ENCRYPTION_KEY: z.string().optional(),
   WALLET_ENCRYPTION_KEY: z.string().optional(),
@@ -51,6 +52,39 @@ const ATTENTION_WORK_ITEM_STATUSES = ['NEEDS_REVISION', 'IN_REVIEW', 'READY', 'A
 const OPEN_ASSIGNMENT_STATUSES = ['PROPOSED', 'ACTIVE', 'PAUSED'];
 const OPEN_INBOX_STATUSES = ['UNREAD', 'READ', 'ACKED'];
 
+async function reconcileStaleProjectRuntimes(projectId) {
+  const staleSeconds = Number(env.AGENT_WORKSPACE_RUNTIME_ACTIVE_STALE_SECONDS);
+  if (!Number.isFinite(staleSeconds) || staleSeconds <= 0) {
+    return { updated: 0 };
+  }
+  const cutoff = new Date(Date.now() - staleSeconds * 1000);
+  const grants = await prisma.projectAccessGrant.findMany({
+    where: {
+      projectId,
+      status: { in: ['PENDING', 'ACTIVE'] },
+    },
+    select: { runtimeId: true },
+  });
+  const runtimeIds = [...new Set(grants.map((grant) => grant.runtimeId).filter(Boolean))];
+  if (!runtimeIds.length) {
+    return { updated: 0 };
+  }
+  const result = await prisma.agentRuntime.updateMany({
+    where: {
+      id: { in: runtimeIds },
+      status: 'ACTIVE',
+      OR: [
+        { lastSeenAt: null },
+        { lastSeenAt: { lt: cutoff } },
+      ],
+    },
+    data: {
+      status: 'STALE',
+    },
+  });
+  return { updated: result.count };
+}
+
 function nonClosedWorkItemWhere(includeClosed) {
   return includeClosed ? {} : { status: { notIn: CLOSED_WORK_ITEM_STATUSES } };
 }
@@ -73,6 +107,53 @@ function resourceRequestIdentityFromPacket(inputPacket, fallbackGoalId = null) {
     Boolean(fallbackGoalId);
   const goalId = isGoalScoped ? String(request.goalId || fallbackGoalId || '').trim() : '';
   return `${isGoalScoped ? 'goal' : 'project'}:${goalId}:${key}`;
+}
+
+function ownerActionIdentityFromPacket(inputPacket, fallbackGoalId = null) {
+  if (!inputPacket || typeof inputPacket !== 'object' || Array.isArray(inputPacket)) return null;
+  const action = inputPacket.ownerAction;
+  if (!action || typeof action !== 'object' || Array.isArray(action)) return null;
+  const key =
+    typeof action.key === 'string' && action.key.trim()
+      ? action.key.trim().toLowerCase()
+      : typeof action.id === 'string' && action.id.trim()
+        ? action.id.trim().toLowerCase()
+        : '';
+  if (!key) return null;
+  const isGoalScoped =
+    action.scope === 'goal' ||
+    action.goalScope === true ||
+    action.category === 'hackerone-goal' ||
+    Boolean(action.goalId) ||
+    Boolean(fallbackGoalId);
+  const goalId = isGoalScoped ? String(action.goalId || fallbackGoalId || '').trim() : '';
+  return `owner-action:${isGoalScoped ? 'goal' : 'project'}:${goalId}:${key}`;
+}
+
+function isHackerOneOpportunityResearchProject(project) {
+  const settings = project?.settings && typeof project.settings === 'object' && !Array.isArray(project.settings)
+    ? project.settings
+    : {};
+  if (settings.projectTemplateId === 'hackerone-opportunity-research') return true;
+  const globals = Array.isArray(settings.projectGlobals) ? settings.projectGlobals : [];
+  const keys = new Set(
+    globals
+      .map((global) => (typeof global?.key === 'string' ? global.key.trim().toLowerCase() : ''))
+      .filter(Boolean),
+  );
+  return keys.has('hackerone_username') && keys.has('hackerone_api_token');
+}
+
+function isHackerOneDispatchableWorkType(workType) {
+  return [
+    'OPPORTUNITY_DISCOVERY',
+    'PLANNING',
+    'SECURITY_TEST',
+    'SECURITY_REVIEW',
+    'SECURITY_AUDIT',
+    'REPORT',
+    'REPORT_READY',
+  ].includes(String(workType || '').trim().toUpperCase());
 }
 
 function sanitizeWorkItemInputPacket(value) {
@@ -103,6 +184,36 @@ function sanitizeWorkItemForResponse(workItem) {
     ...workItem,
     inputPacket: sanitizeWorkItemInputPacket(workItem.inputPacket),
   };
+}
+
+function sanitizeMemberPermissionsForResponse(value) {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeMemberPermissionsForResponse(item));
+  }
+  if (typeof value !== 'object') return value;
+
+  const redacted = {};
+  for (const [key, nested] of Object.entries(value)) {
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (
+      normalizedKey === 'apikey' ||
+      normalizedKey === 'workspacetoken' ||
+      normalizedKey === 'runtimeaccesstoken' ||
+      normalizedKey === 'authorization' ||
+      normalizedKey === 'password' ||
+      normalizedKey === 'secret' ||
+      normalizedKey === 'clientsecret' ||
+      normalizedKey === 'encryptedvalue' ||
+      normalizedKey.endsWith('token') ||
+      normalizedKey.endsWith('secret')
+    ) {
+      redacted[key] = '[REDACTED]';
+      continue;
+    }
+    redacted[key] = sanitizeMemberPermissionsForResponse(nested);
+  }
+  return redacted;
 }
 
 const runtimeTokenStringArraySchema = z.preprocess((value) => {
@@ -253,6 +364,9 @@ const projectEventListQuerySchema = z.object({
     .string()
     .optional()
     .transform((value) => (value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [])),
+  refType: z.string().trim().optional(),
+  refId: z.string().trim().optional(),
+  workItemId: z.string().trim().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(80),
 });
 
@@ -288,10 +402,12 @@ const projectFilePathQuerySchema = z.object({
 const projectFileDeleteQuerySchema = z.object({
   path: z.string().trim().min(1),
   recursive: booleanQuerySchema.default(false),
+  workItemId: z.string().trim().optional(),
 });
 
 const projectFolderCreateSchema = z.object({
   path: z.string().trim().min(1),
+  workItemId: z.string().trim().optional(),
 });
 
 const workItemListQuerySchema = z.object({
@@ -316,6 +432,7 @@ const projectFileWriteSchema = z.object({
   content: z.string().default(''),
   encoding: z.enum(['text', 'base64']).default('text'),
   contentType: z.string().trim().optional(),
+  workItemId: z.string().trim().optional(),
 });
 
 const createMessageSchema = z.object({
@@ -323,6 +440,7 @@ const createMessageSchema = z.object({
   threadRefType: z.string().trim().optional(),
   threadRefId: z.string().trim().optional(),
   threadTitle: z.string().trim().optional(),
+  workItemId: z.string().trim().optional(),
   body: z.string().trim().min(1),
   visibility: z
     .enum(['THREAD_PARTICIPANTS', 'SENDER_AND_TARGET_ONLY', 'HUMAN_ONLY'])
@@ -434,6 +552,7 @@ const createMemorySchema = z.object({
   content: z.string().trim().min(1),
   summary: z.string().trim().optional(),
   sourceArtifactId: z.string().trim().optional(),
+  workItemId: z.string().trim().optional(),
   metadata: z.record(z.any()).optional(),
   createdByUserId: z.string().trim().optional(),
 });
@@ -470,6 +589,68 @@ const ingestExternalEventSchema = z.object({
 function getHeaderValue(request, name) {
   const value = request.headers[name];
   return Array.isArray(value) ? value[0] : value;
+}
+
+const WORK_ITEM_CONTEXT_HEADERS = [
+  'x-agentcraft-work-item-id',
+  'x-agent-workspace-work-item-id',
+  'x-project-work-item-id',
+  'x-work-item-id',
+];
+
+function cleanOptionalString(value) {
+  if (Array.isArray(value)) {
+    return cleanOptionalString(value[0]);
+  }
+  if (value === undefined || value === null) {
+    return '';
+  }
+  const text = String(value).trim();
+  return text || '';
+}
+
+function workItemContextCandidatesFromRequest(request) {
+  return WORK_ITEM_CONTEXT_HEADERS.map((header) => ({
+    value: getHeaderValue(request, header),
+    source: `header:${header}`,
+  }));
+}
+
+async function resolveWorkItemContext(projectId, request, candidates = []) {
+  const candidateList = [
+    ...candidates,
+    ...workItemContextCandidatesFromRequest(request),
+  ];
+  for (const candidate of candidateList) {
+    const workItemId = cleanOptionalString(candidate?.value);
+    if (!workItemId) continue;
+    await ensureProjectReference(projectId, 'workItem', workItemId);
+    return {
+      workItemId,
+      source: candidate?.source || 'request',
+    };
+  }
+  return null;
+}
+
+function workItemContextPayload(workItemContext, auth) {
+  const runtime = runtimeMetadataFromAuth(auth);
+  return {
+    ...(workItemContext?.workItemId
+      ? {
+          workItemId: workItemContext.workItemId,
+          workItemContextSource: workItemContext.source,
+        }
+      : {}),
+    ...(runtime
+      ? {
+          runtime,
+          actorMemberId: runtime.memberId,
+          actorRuntimeId: runtime.runtimeId,
+        }
+      : {}),
+    authType: auth?.type || null,
+  };
 }
 
 function unauthorized(message) {
@@ -730,6 +911,37 @@ async function resolveProjectGlobals(projectId, settings) {
       configured: Boolean(record || value),
     };
   });
+}
+
+function positiveIntegerFromProjectGlobal(projectGlobals, key) {
+  const entry = projectGlobals.find((global) => global.key === key);
+  const numeric = Number(entry?.value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : null;
+}
+
+function maxActiveItemsFromProjectGlobals(projectGlobals) {
+  for (const key of ['max_active_items', 'project_max_active_items', 'h1_max_active_items']) {
+    const value = positiveIntegerFromProjectGlobal(projectGlobals, key);
+    if (value) return Math.min(value, 300);
+  }
+  return 300;
+}
+
+async function ensureProjectActiveWorkItemCapacity(projectId, settings) {
+  const projectGlobals = await resolveProjectGlobals(projectId, settings);
+  const maxActiveItems = maxActiveItemsFromProjectGlobals(projectGlobals);
+  const activeItemCount = await prisma.projectWorkItem.count({
+    where: {
+      projectId,
+      status: { notIn: CLOSED_WORK_ITEM_STATUSES },
+    },
+  });
+  if (activeItemCount >= maxActiveItems) {
+    throw badRequest(
+      `Project active work item limit reached (${activeItemCount}/${maxActiveItems}). Complete, accept, or cancel existing items before creating more.`,
+    );
+  }
+  return { activeItemCount, maxActiveItems };
 }
 
 function storageConfig() {
@@ -1377,6 +1589,76 @@ function runtimeMetadataFromAuth(auth) {
   };
 }
 
+function runtimeSessionFromPermissions(permissions) {
+  if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) return null;
+  const session = permissions.runtimeSession;
+  return session && typeof session === 'object' && !Array.isArray(session) ? session : null;
+}
+
+function runtimeSessionConversationId(session) {
+  if (!session) return null;
+  return (
+    session.activeRequestConversationId ||
+    session.activeConversationId ||
+    (Array.isArray(session.conversations) && session.conversations[0]?.id) ||
+    null
+  );
+}
+
+function ownerTodoKindFromPacket(inputPacket, fallbackGoalId = null) {
+  if (resourceRequestIdentityFromPacket(inputPacket, fallbackGoalId)) return 'resourceRequest';
+  if (ownerActionIdentityFromPacket(inputPacket, fallbackGoalId)) return 'ownerAction';
+  return null;
+}
+
+function mergeOwnerTodoRequester(inputPacket, requester, fallbackGoalId = null) {
+  if (!requester || !inputPacket || typeof inputPacket !== 'object' || Array.isArray(inputPacket)) return inputPacket;
+  const kind = ownerTodoKindFromPacket(inputPacket, fallbackGoalId);
+  if (!kind) return inputPacket;
+  const nested = inputPacket[kind] && typeof inputPacket[kind] === 'object' && !Array.isArray(inputPacket[kind])
+    ? inputPacket[kind]
+    : {};
+  const existingTop = inputPacket.ownerTodoRequester && typeof inputPacket.ownerTodoRequester === 'object' && !Array.isArray(inputPacket.ownerTodoRequester)
+    ? inputPacket.ownerTodoRequester
+    : {};
+  const existingNested = nested.requester && typeof nested.requester === 'object' && !Array.isArray(nested.requester)
+    ? nested.requester
+    : {};
+  const mergedRequester = {
+    ...requester,
+    ...existingTop,
+    ...existingNested,
+    source: existingNested.source || existingTop.source || requester.source || 'agent-runtime',
+    requestedAt: existingNested.requestedAt || existingTop.requestedAt || requester.requestedAt || new Date().toISOString(),
+  };
+  return {
+    ...inputPacket,
+    ownerTodoRequester: mergedRequester,
+    [kind]: {
+      ...nested,
+      requester: mergedRequester,
+    },
+  };
+}
+
+async function ownerTodoRequesterMetadataFromAuth(projectId, auth) {
+  const runtime = runtimeMetadataFromAuth(auth);
+  if (!runtime) return null;
+  const member = await prisma.projectMember.findFirst({
+    where: { id: runtime.memberId, projectId, removedAt: null },
+    select: { id: true, userId: true, role: true, permissions: true },
+  });
+  const session = runtimeSessionFromPermissions(member?.permissions);
+  return {
+    ...runtime,
+    userId: member?.userId ?? null,
+    role: member?.role ?? null,
+    conversationId: runtimeSessionConversationId(session),
+    requestId: session?.activeRequestId || null,
+    requestedAt: runtime.stampedAt,
+  };
+}
+
 function parseMemoryCandidates(candidates) {
   const allowedTypes = new Set(['DECISION', 'CONSTRAINT', 'FACT', 'RISK', 'OPEN_QUESTION', 'INTERFACE_CONTRACT']);
   return (Array.isArray(candidates) ? candidates : [])
@@ -1899,6 +2181,9 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
   const input = updateProjectGlobalsSchema.parse(request.body ?? {});
   const project = await getProjectOrThrow(projectId);
   const actorUserId = await actorUserIdFromAuth(projectId, auth, input.updatedByUserId);
+  const workItemContext = await resolveWorkItemContext(projectId, request, [
+    { value: input.workItemId, source: 'body.workItemId' },
+  ]);
   const globals = input.globals
     .map((entry) => ({
       key: entry.key,
@@ -1919,22 +2204,13 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
     ? project.settings
     : {};
   const existingGlobals = await resolveProjectGlobals(projectId, existingSettings);
-  if (input.workItemId) {
-    const workItem = await prisma.projectWorkItem.findFirst({
-      where: { id: input.workItemId, projectId },
-      select: { id: true },
-    });
-    if (!workItem) {
-      throw badRequest('Work item not found in project');
-    }
-  }
   const existingGlobalIdentities = new Set(existingGlobals.map((entry) => projectGlobalIdentity(entry)).filter(Boolean));
   const createdGlobals = globals.filter((global) => !existingGlobalIdentities.has(projectGlobalIdentity(global)));
   const updatedGlobals = globals.filter((global) => existingGlobalIdentities.has(projectGlobalIdentity(global)));
   const globalEventPayloads = globals.map((global) =>
     projectGlobalEventPayload(global, {
       action: existingGlobalIdentities.has(projectGlobalIdentity(global)) ? 'updated' : 'created',
-      workItemId: input.workItemId,
+      workItemId: workItemContext?.workItemId,
       source: input.source,
       auth,
     }),
@@ -2221,11 +2497,29 @@ app.get('/v1/projects/:projectId/events', async (request) => {
   await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_BOARD_READ' });
   await getProjectOrThrow(projectId);
 
+  const relationFilters = [];
+  if (query.refType || query.refId) {
+    relationFilters.push({
+      ...(query.refType ? { refType: query.refType } : {}),
+      ...(query.refId ? { refId: query.refId } : {}),
+    });
+  }
+  if (query.workItemId) {
+    relationFilters.push(
+      { refType: 'WORK_ITEM', refId: query.workItemId },
+      { payload: { path: '$.workItemId', equals: query.workItemId } },
+      { payload: { path: '$.workItem.id', equals: query.workItemId } },
+      { payload: { path: '$.affectedWorkItemIds', array_contains: query.workItemId } },
+      { payload: { path: '$.affected.workItems', array_contains: query.workItemId } },
+    );
+  }
+
   const events = await prisma.projectEvent.findMany({
     where: {
       projectId,
       ...(query.sinceSeq !== undefined ? { seq: { gt: query.sinceSeq } } : {}),
       ...(query.types.length ? { type: { in: query.types } } : {}),
+      ...(relationFilters.length ? { OR: relationFilters } : {}),
     },
     orderBy: { seq: 'desc' },
     take: query.limit,
@@ -2294,6 +2588,7 @@ app.get('/v1/projects/:projectId/members', async (request) => {
   const { projectId } = request.params;
   await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_MEMBER_READ' });
   await getProjectOrThrow(projectId);
+  await reconcileStaleProjectRuntimes(projectId);
 
   const members = await prisma.projectMember.findMany({
     where: { projectId, removedAt: null },
@@ -2346,13 +2641,14 @@ app.get('/v1/projects/:projectId/members', async (request) => {
     const activeGrants = grantsByMember.get(member.id) ?? [];
     const primaryRuntime = activeGrants.length ? runtimesById.get(activeGrants[0].runtimeId) : null;
     const presence = presenceByMember.get(member.id) ?? null;
+    const runtimeStale = primaryRuntime?.status === 'STALE';
 
     return {
       memberId: member.id,
       userId: member.userId,
       displayName: user?.displayName ?? user?.email ?? member.userId,
       role: member.role,
-      permissions: member.permissions,
+      permissions: sanitizeMemberPermissionsForResponse(member.permissions),
       runtime: primaryRuntime
         ? {
             runtimeId: primaryRuntime.id,
@@ -2360,6 +2656,7 @@ app.get('/v1/projects/:projectId/members', async (request) => {
             provider: primaryRuntime.provider,
             model: primaryRuntime.model,
             status: primaryRuntime.status,
+            stale: runtimeStale,
             lastSeenAt: primaryRuntime.lastSeenAt,
           }
         : null,
@@ -2443,23 +2740,49 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
   await ensureProjectReference(projectId, 'goal', goalId);
   const actorUserId = await actorUserIdFromAuth(projectId, auth, input.createdByUserId);
   const runtimeMetadata = runtimeMetadataFromAuth(auth);
+  const ownerTodoRequester = await ownerTodoRequesterMetadataFromAuth(projectId, auth);
   const resourceRequestIdentity = resourceRequestIdentityFromPacket(input.inputPacket, goalId);
-  const ownerId = resourceRequestIdentity ? project.ownerId : input.ownerId ?? null;
+  const ownerActionIdentity = ownerActionIdentityFromPacket(input.inputPacket, goalId);
+  const ownerScopedIdentity = resourceRequestIdentity || ownerActionIdentity;
+  const isHackerOneRuntimeCreate = Boolean(runtimeMetadata) && isHackerOneOpportunityResearchProject(project);
+  if (
+    isHackerOneRuntimeCreate &&
+    !ownerScopedIdentity &&
+    !goalId &&
+    isHackerOneDispatchableWorkType(input.workType)
+  ) {
+    throw badRequest('HackerOne runtime-created dispatchable work items must include a goalId');
+  }
+  const ownerId = ownerScopedIdentity
+    ? project.ownerId
+    : isHackerOneRuntimeCreate
+      ? null
+      : input.ownerId ?? null;
 
-  if (resourceRequestIdentity) {
-    const openResourceItems = await prisma.projectWorkItem.findMany({
+  if (ownerScopedIdentity) {
+    const openOwnerItems = await prisma.projectWorkItem.findMany({
       where: {
         projectId,
         status: { notIn: CLOSED_WORK_ITEM_STATUSES },
       },
       orderBy: { createdAt: 'asc' },
     });
-    const existingResourceItem = openResourceItems.find(
-      (item) => resourceRequestIdentityFromPacket(item.inputPacket, item.goalId) === resourceRequestIdentity,
+    const existingOwnerItem = openOwnerItems.find(
+      (item) =>
+        (
+          resourceRequestIdentity
+            ? resourceRequestIdentityFromPacket(item.inputPacket, item.goalId)
+            : ownerActionIdentityFromPacket(item.inputPacket, item.goalId)
+        ) === ownerScopedIdentity,
     );
-    if (existingResourceItem) {
-      return { workItemId: existingResourceItem.id, workItem: sanitizeWorkItemForResponse(existingResourceItem), reused: true };
+    if (existingOwnerItem) {
+      return { workItemId: existingOwnerItem.id, workItem: sanitizeWorkItemForResponse(existingOwnerItem), reused: true };
     }
+  }
+
+  const requestedStatus = input.status ?? 'DRAFT';
+  if (!CLOSED_WORK_ITEM_STATUSES.includes(requestedStatus)) {
+    await ensureProjectActiveWorkItemCapacity(projectId, project.settings);
   }
 
   const workItem = await prisma.$transaction(async (tx) => {
@@ -2473,15 +2796,15 @@ app.post('/v1/projects/:projectId/work-items', async (request) => {
         title: input.title,
         description: input.description ?? null,
         workType: input.workType,
-        status: input.status ?? 'DRAFT',
+        status: requestedStatus,
         scopeBrief: input.scopeBrief ?? null,
         acceptanceCriteria: input.acceptanceCriteria ?? null,
         inputPacket: runtimeMetadata
-          ? {
+          ? mergeOwnerTodoRequester({
               ...(input.inputPacket ?? {}),
               source: input.inputPacket?.source ?? 'agent-runtime',
               agentRuntime: runtimeMetadata,
-            }
+            }, ownerTodoRequester, goalId)
           : input.inputPacket ?? undefined,
         outputContract: input.outputContract ?? undefined,
         dependsOn: input.dependsOn ?? [],
@@ -3179,6 +3502,9 @@ app.post('/v1/projects/:projectId/files/folders', async (request) => {
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_WRITE' });
   const input = projectFolderCreateSchema.parse(request.body ?? {});
   await getProjectOrThrow(projectId);
+  const workItemContext = await resolveWorkItemContext(projectId, request, [
+    { value: input.workItemId, source: 'body.workItemId' },
+  ]);
 
   const { folderPath, markerPath, key } = await putProjectFolderMarker(projectId, input.path);
 
@@ -3190,7 +3516,12 @@ app.post('/v1/projects/:projectId/files/folders', async (request) => {
       refType: 'PROJECT_FOLDER',
       refId: folderPath,
       actorUserId,
-      payload: { path: folderPath, markerPath, key },
+      payload: {
+        path: folderPath,
+        markerPath,
+        key,
+        ...workItemContextPayload(workItemContext, auth),
+      },
     });
   });
 
@@ -3199,6 +3530,7 @@ app.post('/v1/projects/:projectId/files/folders', async (request) => {
     path: folderPath,
     key,
     markerPath,
+    workItemId: workItemContext?.workItemId ?? null,
     created: true,
   };
 });
@@ -3286,6 +3618,9 @@ app.post('/v1/projects/:projectId/files/write', async (request) => {
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_WRITE' });
   const input = projectFileWriteSchema.parse(request.body ?? {});
   await getProjectOrThrow(projectId);
+  const workItemContext = await resolveWorkItemContext(projectId, request, [
+    { value: input.workItemId, source: 'body.workItemId' },
+  ]);
 
   const key = projectStorageKey(projectId, input.path);
   const client = getProjectStorageClient();
@@ -3307,7 +3642,13 @@ app.post('/v1/projects/:projectId/files/write', async (request) => {
       refType: 'PROJECT_FILE',
       refId: normalizeProjectFilePath(input.path),
       actorUserId,
-      payload: { path: normalizeProjectFilePath(input.path), key, size: body.length, contentType },
+      payload: {
+        path: normalizeProjectFilePath(input.path),
+        key,
+        size: body.length,
+        contentType,
+        ...workItemContextPayload(workItemContext, auth),
+      },
     });
   });
 
@@ -3317,6 +3658,7 @@ app.post('/v1/projects/:projectId/files/write', async (request) => {
     key,
     size: body.length,
     contentType,
+    workItemId: workItemContext?.workItemId ?? null,
   };
 });
 
@@ -3330,7 +3672,11 @@ app.post('/v1/projects/:projectId/files/upload', async (request) => {
     throw badRequest('No file provided');
   }
   const fieldPath = part.fields?.path?.value;
+  const fieldWorkItemId = part.fields?.workItemId?.value;
   const filePath = normalizeUploadPath(typeof fieldPath === 'string' ? fieldPath : undefined, part.filename);
+  const workItemContext = await resolveWorkItemContext(projectId, request, [
+    { value: fieldWorkItemId, source: 'form.workItemId' },
+  ]);
   const body = await part.toBuffer();
   const key = projectStorageKey(projectId, filePath);
   const contentType = part.mimetype || 'application/octet-stream';
@@ -3351,7 +3697,13 @@ app.post('/v1/projects/:projectId/files/upload', async (request) => {
       refType: 'PROJECT_FILE',
       refId: filePath,
       actorUserId,
-      payload: { path: filePath, key, size: body.length, contentType },
+      payload: {
+        path: filePath,
+        key,
+        size: body.length,
+        contentType,
+        ...workItemContextPayload(workItemContext, auth),
+      },
     });
   });
 
@@ -3361,6 +3713,7 @@ app.post('/v1/projects/:projectId/files/upload', async (request) => {
     key,
     size: body.length,
     contentType,
+    workItemId: workItemContext?.workItemId ?? null,
   };
 });
 
@@ -3369,6 +3722,9 @@ app.delete('/v1/projects/:projectId/files', async (request) => {
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'PROJECT_FILE_WRITE' });
   const query = projectFileDeleteQuerySchema.parse(request.query ?? {});
   await getProjectOrThrow(projectId);
+  const workItemContext = await resolveWorkItemContext(projectId, request, [
+    { value: query.workItemId, source: 'query.workItemId' },
+  ]);
 
   const path = query.recursive ? normalizeProjectFolderPath(query.path) : normalizeProjectFilePath(query.path);
   const client = getProjectStorageClient();
@@ -3410,11 +3766,15 @@ app.delete('/v1/projects/:projectId/files', async (request) => {
       refType: query.recursive ? 'PROJECT_FOLDER' : 'PROJECT_FILE',
       refId: path,
       actorUserId,
-      payload: { path, deletedKeys },
+      payload: {
+        path,
+        deletedKeys,
+        ...workItemContextPayload(workItemContext, auth),
+      },
     });
   });
 
-  return { projectId, path, deletedKeys, deleted: true };
+  return { projectId, path, deletedKeys, workItemId: workItemContext?.workItemId ?? null, deleted: true };
 });
 
 app.get('/v1/projects/:projectId/memories', async (request) => {
@@ -3457,6 +3817,11 @@ app.post('/v1/projects/:projectId/memories', async (request) => {
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'MEMORY_WRITE' });
   const input = createMemorySchema.parse(request.body ?? {});
   await getProjectOrThrow(projectId);
+  const workItemContext = await resolveWorkItemContext(projectId, request, [
+    { value: input.workItemId, source: 'body.workItemId' },
+    { value: input.metadata?.workItemId, source: 'body.metadata.workItemId' },
+    { value: input.metadata?.currentWorkItemId, source: 'body.metadata.currentWorkItemId' },
+  ]);
   if (input.sourceArtifactId) {
     const artifact = await prisma.projectArtifact.findFirst({
       where: { id: input.sourceArtifactId, projectId },
@@ -3479,6 +3844,7 @@ app.post('/v1/projects/:projectId/memories', async (request) => {
         summary: input.summary ?? null,
         metadata: {
           ...(input.metadata ?? {}),
+          ...(workItemContext?.workItemId ? { workItemId: workItemContext.workItemId } : {}),
           ...(runtimeMetadataFromAuth(auth) ? { runtime: runtimeMetadataFromAuth(auth) } : {}),
         },
         sourceArtifactId: input.sourceArtifactId ?? null,
@@ -3499,6 +3865,7 @@ app.post('/v1/projects/:projectId/memories', async (request) => {
         memoryType: created.memoryType,
         title: created.title,
         sourceArtifactId: created.sourceArtifactId,
+        ...workItemContextPayload(workItemContext, auth),
       },
     });
 
@@ -3571,10 +3938,34 @@ app.post('/v1/projects/:projectId/messages', async (request) => {
   const auth = await requireHostOrRuntime(request, { projectId, scope: 'THREAD_PARTICIPATE' });
   const input = createMessageSchema.parse(request.body ?? {});
   await getProjectOrThrow(projectId);
+  const workItemContext = await resolveWorkItemContext(projectId, request, [
+    { value: input.workItemId, source: 'body.workItemId' },
+    { value: input.metadata?.workItemId, source: 'body.metadata.workItemId' },
+    {
+      value: input.threadRefType === 'WORK_ITEM' ? input.threadRefId : undefined,
+      source: 'body.threadRefId',
+    },
+  ]);
+  const hasExplicitThreadRef = Boolean(input.threadRefType && input.threadRefId);
+  const messageInput = workItemContext?.workItemId && !input.threadId && !hasExplicitThreadRef
+    ? {
+        ...input,
+        threadRefType: 'WORK_ITEM',
+        threadRefId: workItemContext.workItemId,
+        threadTitle: input.threadTitle || `Work item ${workItemContext.workItemId}`,
+      }
+    : input;
 
-  const senderMemberId = auth.type === 'runtime' ? auth.token.memberId : input.senderMemberId ?? null;
-  const thread = await getThreadForWrite(projectId, input, senderMemberId);
+  const senderMemberId = auth.type === 'runtime' ? auth.token.memberId : messageInput.senderMemberId ?? null;
+  const thread = await getThreadForWrite(projectId, messageInput, senderMemberId);
   const senderMember = senderMemberId ? await getProjectMemberOrThrow(projectId, senderMemberId) : null;
+  const messageMetadata = workItemContext?.workItemId
+    ? {
+        ...(messageInput.metadata ?? {}),
+        workItemId: workItemContext.workItemId,
+        workItemContextSource: workItemContext.source,
+      }
+    : messageInput.metadata ?? null;
 
   const created = await prisma.$transaction(async (tx) => {
     const message = await tx.projectMessage.create({
@@ -3584,17 +3975,17 @@ app.post('/v1/projects/:projectId/messages', async (request) => {
         threadId: thread.id,
         senderMemberId,
         senderRuntimeId: auth.type === 'runtime' ? auth.token.runtimeId : null,
-        messageType: input.messageType,
-        visibility: input.visibility,
-        targetMemberIds: input.targetMemberIds ?? [],
-        mentionMemberIds: input.mentions ?? [],
-        body: input.body,
-        requiresAck: input.requiresAck,
-        metadata: input.metadata ?? null,
+        messageType: messageInput.messageType,
+        visibility: messageInput.visibility,
+        targetMemberIds: messageInput.targetMemberIds ?? [],
+        mentionMemberIds: messageInput.mentions ?? [],
+        body: messageInput.body,
+        requiresAck: messageInput.requiresAck,
+        metadata: messageMetadata,
       },
     });
 
-    for (const mentionedMemberId of input.mentions ?? []) {
+    for (const mentionedMemberId of messageInput.mentions ?? []) {
       if (mentionedMemberId === senderMemberId) continue;
       await createInboxItem(tx, {
         projectId,
@@ -3610,7 +4001,7 @@ app.post('/v1/projects/:projectId/messages', async (request) => {
       });
     }
 
-    for (const targetMemberId of input.targetMemberIds ?? []) {
+    for (const targetMemberId of messageInput.targetMemberIds ?? []) {
       if (targetMemberId === senderMemberId) continue;
       await createInboxItem(tx, {
         projectId,
@@ -3618,11 +4009,11 @@ app.post('/v1/projects/:projectId/messages', async (request) => {
         sourceMemberId: senderMemberId,
         kind: 'PEER_MESSAGE',
         ownerActionType: 'RESPOND_TO_PEER',
-        priority: input.messageType === 'ALERT' ? 'HIGH' : 'NORMAL',
+        priority: messageInput.messageType === 'ALERT' ? 'HIGH' : 'NORMAL',
         refType: 'MESSAGE',
         refId: message.id,
         threadId: thread.id,
-        summary: input.body.slice(0, 160),
+        summary: messageInput.body.slice(0, 160),
       });
     }
 
@@ -3637,9 +4028,10 @@ app.post('/v1/projects/:projectId/messages', async (request) => {
         threadId: thread.id,
         threadTitle: thread.title,
         senderMemberId,
-        targetMemberIds: input.targetMemberIds ?? [],
-        mentionMemberIds: input.mentions ?? [],
-        messageType: input.messageType,
+        targetMemberIds: messageInput.targetMemberIds ?? [],
+        mentionMemberIds: messageInput.mentions ?? [],
+        messageType: messageInput.messageType,
+        ...workItemContextPayload(workItemContext, auth),
       },
     });
 

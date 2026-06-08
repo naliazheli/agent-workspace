@@ -257,6 +257,16 @@
       "required": true,
       "createTaskOnMissing": true,
       "category": "legal"
+    },
+    {
+      "key": "max_active_items",
+      "label": "Max Active Items",
+      "description": "Maximum number of non-terminal work items allowed in this project. The API caps this value at 300.",
+      "value": "300",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "project-limits"
     }
   ]
 }
