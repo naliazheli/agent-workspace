@@ -616,7 +616,44 @@ function workItemContextCandidatesFromRequest(request) {
   }));
 }
 
-async function resolveWorkItemContext(projectId, request, candidates = []) {
+async function inferRuntimeWorkItemContext(projectId, auth) {
+  if (!auth || auth.type !== 'runtime') {
+    return null;
+  }
+
+  const member = await prisma.projectMember.findFirst({
+    where: { id: auth.token.memberId, projectId, removedAt: null },
+    select: { userId: true },
+  });
+  if (!member) {
+    return null;
+  }
+
+  const assignments = await prisma.projectAssignment.findMany({
+    where: {
+      projectId,
+      assigneeUserId: member.userId,
+      status: { in: OPEN_ASSIGNMENT_STATUSES },
+    },
+    select: { id: true, workItemId: true, status: true },
+    orderBy: { updatedAt: 'desc' },
+    take: 2,
+  });
+  const workItemIds = [...new Set(assignments.map((assignment) => assignment.workItemId).filter(Boolean))];
+  if (workItemIds.length !== 1) {
+    return null;
+  }
+
+  await ensureProjectReference(projectId, 'workItem', workItemIds[0]);
+  return {
+    workItemId: workItemIds[0],
+    source: 'runtime-active-assignment',
+    assignmentId: assignments[0]?.id || null,
+    assignmentStatus: assignments[0]?.status || null,
+  };
+}
+
+async function resolveWorkItemContext(projectId, request, candidates = [], auth = null) {
   const candidateList = [
     ...candidates,
     ...workItemContextCandidatesFromRequest(request),
@@ -630,7 +667,7 @@ async function resolveWorkItemContext(projectId, request, candidates = []) {
       source: candidate?.source || 'request',
     };
   }
-  return null;
+  return inferRuntimeWorkItemContext(projectId, auth);
 }
 
 function workItemContextPayload(workItemContext, auth) {
@@ -640,6 +677,12 @@ function workItemContextPayload(workItemContext, auth) {
       ? {
           workItemId: workItemContext.workItemId,
           workItemContextSource: workItemContext.source,
+        }
+      : {}),
+    ...(workItemContext?.assignmentId
+      ? {
+          assignmentId: workItemContext.assignmentId,
+          assignmentStatus: workItemContext.assignmentStatus || null,
         }
       : {}),
     ...(runtime
@@ -2183,7 +2226,7 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
   const actorUserId = await actorUserIdFromAuth(projectId, auth, input.updatedByUserId);
   const workItemContext = await resolveWorkItemContext(projectId, request, [
     { value: input.workItemId, source: 'body.workItemId' },
-  ]);
+  ], auth);
   const globals = input.globals
     .map((entry) => ({
       key: entry.key,
@@ -3528,7 +3571,7 @@ app.post('/v1/projects/:projectId/files/folders', async (request) => {
   await getProjectOrThrow(projectId);
   const workItemContext = await resolveWorkItemContext(projectId, request, [
     { value: input.workItemId, source: 'body.workItemId' },
-  ]);
+  ], auth);
 
   const { folderPath, markerPath, key } = await putProjectFolderMarker(projectId, input.path);
 
@@ -3644,7 +3687,7 @@ app.post('/v1/projects/:projectId/files/write', async (request) => {
   await getProjectOrThrow(projectId);
   const workItemContext = await resolveWorkItemContext(projectId, request, [
     { value: input.workItemId, source: 'body.workItemId' },
-  ]);
+  ], auth);
 
   const key = projectStorageKey(projectId, input.path);
   const client = getProjectStorageClient();
@@ -3700,7 +3743,7 @@ app.post('/v1/projects/:projectId/files/upload', async (request) => {
   const filePath = normalizeUploadPath(typeof fieldPath === 'string' ? fieldPath : undefined, part.filename);
   const workItemContext = await resolveWorkItemContext(projectId, request, [
     { value: fieldWorkItemId, source: 'form.workItemId' },
-  ]);
+  ], auth);
   const body = await part.toBuffer();
   const key = projectStorageKey(projectId, filePath);
   const contentType = part.mimetype || 'application/octet-stream';
@@ -3748,7 +3791,7 @@ app.delete('/v1/projects/:projectId/files', async (request) => {
   await getProjectOrThrow(projectId);
   const workItemContext = await resolveWorkItemContext(projectId, request, [
     { value: query.workItemId, source: 'query.workItemId' },
-  ]);
+  ], auth);
 
   const path = query.recursive ? normalizeProjectFolderPath(query.path) : normalizeProjectFilePath(query.path);
   const client = getProjectStorageClient();
@@ -3845,7 +3888,7 @@ app.post('/v1/projects/:projectId/memories', async (request) => {
     { value: input.workItemId, source: 'body.workItemId' },
     { value: input.metadata?.workItemId, source: 'body.metadata.workItemId' },
     { value: input.metadata?.currentWorkItemId, source: 'body.metadata.currentWorkItemId' },
-  ]);
+  ], auth);
   if (input.sourceArtifactId) {
     const artifact = await prisma.projectArtifact.findFirst({
       where: { id: input.sourceArtifactId, projectId },
@@ -3969,7 +4012,7 @@ app.post('/v1/projects/:projectId/messages', async (request) => {
       value: input.threadRefType === 'WORK_ITEM' ? input.threadRefId : undefined,
       source: 'body.threadRefId',
     },
-  ]);
+  ], auth);
   const hasExplicitThreadRef = Boolean(input.threadRefType && input.threadRefId);
   const messageInput = workItemContext?.workItemId && !input.threadId && !hasExplicitThreadRef
     ? {
@@ -4177,6 +4220,13 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
   if (input.artifactId && !reviewArtifact) {
     throw badRequest('Artifact not found in project');
   }
+  const workItemBefore = await prisma.projectWorkItem.findFirst({
+    where: { id: assignment.workItemId, projectId },
+    select: { id: true, title: true, workType: true, goalId: true, featureId: true, status: true },
+  });
+  if (!workItemBefore) {
+    throw badRequest('Work item not found in project');
+  }
 
   const reviewThread = await prisma.projectThread.findFirst({
     where: {
@@ -4263,6 +4313,7 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
           refId: createdMemory.id,
           actorUserId: reviewerMember.userId,
           payload: {
+            workItemId: reviewArtifact.workItemId ?? assignment.workItemId,
             memoryType: createdMemory.memoryType,
             title: createdMemory.title,
             sourceArtifactId: createdMemory.sourceArtifactId,
@@ -4305,8 +4356,44 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
       refType: 'REVIEW',
       refId: createdReview.id,
       actorUserId: reviewerMember.userId,
-      payload: { threadId: thread.id, generatedInboxItemId, workItemStatus: nextWorkItemStatus ?? null },
+      payload: {
+        workItemId: assignment.workItemId,
+        assignmentId: assignment.id,
+        artifactId: input.artifactId ?? null,
+        reviewStatus: createdReview.status,
+        decision: input.decision,
+        summary: input.summary ?? null,
+        hasChecklistResult: Boolean(input.details),
+        previousStatus: workItemBefore.status,
+        status: nextWorkItemStatus ?? workItemBefore.status,
+        threadId: thread.id,
+        generatedInboxItemId,
+        workItemStatus: nextWorkItemStatus ?? null,
+        source: 'review',
+      },
     });
+    if (nextWorkItemStatus && workItemBefore.status !== nextWorkItemStatus) {
+      await appendProjectEvent(tx, {
+        projectId,
+        type: 'WORK_ITEM_STATUS_CHANGED',
+        refType: 'WORK_ITEM',
+        refId: assignment.workItemId,
+        actorUserId: reviewerMember.userId,
+        payload: {
+          workItemId: assignment.workItemId,
+          title: workItemBefore.title,
+          workType: workItemBefore.workType,
+          goalId: workItemBefore.goalId,
+          featureId: workItemBefore.featureId,
+          previousStatus: workItemBefore.status,
+          status: nextWorkItemStatus,
+          source: 'review',
+          reviewId: createdReview.id,
+          reviewStatus: createdReview.status,
+          assignmentId: assignment.id,
+        },
+      });
+    }
 
     return { createdReview, generatedInboxItemId };
   });
