@@ -19,7 +19,7 @@ These are project shared files. Use `project-file-list`, `project-file-read`, `p
 - Before creating work, check current work items and active assignments for the same source and stage.
 - For missing first-pass review, create one READY work item with `workType: LEGAL_CLAUSE_REVIEW` and the source file in `inputPacket.projectFiles`; leave it unassigned for the COORDINATOR to dispatch to `LEGAL_CLAUSE_AGENT`.
 - For missing second-pass review, create one READY work item with `workType: LEGAL_RECOMMENDATIONS` and both the source file and the first-pass file in `inputPacket.projectFiles`; leave it unassigned for the COORDINATOR to dispatch to `LEGAL_RECOMMENDATIONS_AGENT`.
-- While the template coordinator is enabled, do not call runtime-dispatch from the lead role. If you find an already-open assignment for the same source/stage, treat it as in flight instead of creating or dispatching another item.
+- Treat the template coordinator as the primary dispatcher. Use runtime-dispatch from the lead role only as a fallback when the coordinator is disabled, unavailable, stale, blocked, or has not produced an assignment and the project needs a new agent to keep moving. If you find an already-open assignment for the same source/stage, treat it as in flight instead of creating or dispatching another item.
 - Tell reviewers the exact shared output path they must write, and require them to verify it before completing the assignment.
 - After the final report exists, create or update an owner decision item that links the report path.
 - If all review-stage items are accepted but the final report or owner decision item is missing, create the missing item instead of marking the goal done.
