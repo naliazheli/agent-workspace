@@ -129,7 +129,7 @@
     {
       "role": "COORDINATOR",
       "launchable": false,
-      "label": "协调者",
+      "label": "Coordinator",
       "description": "System default role that reads legal contract review status rules, project/member capacity, and model API availability, then dispatches matching legal specialist roles."
     },
     {

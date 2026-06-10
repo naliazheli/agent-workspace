@@ -92,11 +92,14 @@ assessment, compliance, obligations mapping, and recommendations.
 ## HackerOne opportunity research template
 
 `hackerone-opportunity-research/template.json` coordinates authorized
-HackerOne BBP research. It requires owner-provided `hackerone_username` and
-`hackerone_api_token` project globals, records analyzed opportunities in shared
-project files, creates one goal per promising program or asset group, and then
-dispatches local planner/worker agents with scoped HackerOne context. Discovery
-agents must first read `analysed/` and skip project/program URLs already
+HackerOne BBP research. Opportunity discovery uses owner-provided
+`hackerone_username` and `hackerone_api_token` project globals, records
+analyzed opportunities in shared project files, creates one goal per promising
+program or asset group, and then dispatches local planner/worker agents with
+scoped HackerOne context. Worker agents should not require those global H1
+credentials merely to start; they request target-specific resources through
+owner work items only when the assigned phase needs them. Discovery agents must
+first read `analysed/` and skip project/program URLs already
 recorded there; every evaluated candidate appends a record to
 `analysed/project-addresses.jsonl` so later passes do not restart from the same
 programs. Goal-level target credentials should be requested through owner
