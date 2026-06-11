@@ -103,8 +103,7 @@ function resourceRequestIdentityFromPacket(inputPacket, fallbackGoalId = null) {
     request.scope === 'goal' ||
     request.goalScope === true ||
     request.category === 'hackerone-goal' ||
-    Boolean(request.goalId) ||
-    Boolean(fallbackGoalId);
+    Boolean(request.goalId);
   const goalId = isGoalScoped ? String(request.goalId || fallbackGoalId || '').trim() : '';
   return `${isGoalScoped ? 'goal' : 'project'}:${goalId}:${key}`;
 }
