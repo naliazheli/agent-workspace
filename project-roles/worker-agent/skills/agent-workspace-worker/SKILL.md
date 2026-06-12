@@ -40,12 +40,13 @@ When a work item includes `inputPacket.goalTopology`, `inputPacket.workSlice`, l
 
 1. Execute only the assigned slice, step, or revision. Do not broaden into aggregation or final delivery unless the work item explicitly asks for it.
 2. Read every `projectFiles` entry and any dependency artifact before analysis. If a required upstream path is missing or unreadable, report that exact path as a blocker.
-3. Check every `requiredGlobals` key before external or credential-dependent work. If a key is missing, stop that path and name the key; do not invent data or ask for secret values in chat.
-4. Write promised outputs to the exact project shared paths in `outputProjectFiles` or `outputContract.sharedFiles`.
-5. Verify each promised shared file with `project-file-list` or `project-file-read` before handoff.
-6. Include source freshness, assumptions, missing data, conflicts, and residual risks when the domain or downstream aggregation depends on source quality.
-7. End with a handoff that names the slice/step, files produced, files read, verification performed, blockers, and whether the item is ready for review or needs a follow-up item.
-8. Propose `memoryCandidates` only for reusable decisions, constraints, facts, risks, or open questions. Do not turn routine progress or temporary findings into memory.
+3. For aggregation, synthesis, or delivery items, first inspect `relatedWorkItems`, `dependencyItems`, and `acceptedUpstreamItems`. Use the upstream item ids, descriptions, statuses, and output paths to understand what was accepted; open exact item details only when the summary or files are insufficient.
+4. Check every `requiredGlobals` key before external or credential-dependent work. If a key is missing, stop that path and name the key; do not invent data or ask for secret values in chat.
+5. Write promised outputs to the exact project shared paths in `outputProjectFiles` or `outputContract.sharedFiles`.
+6. Verify each promised shared file with `project-file-list` or `project-file-read` before handoff.
+7. Include source freshness, assumptions, missing data, conflicts, and residual risks when the domain or downstream aggregation depends on source quality.
+8. End with a handoff that names the slice/step, files produced, files read, verification performed, blockers, and whether the item is ready for review or needs a follow-up item.
+9. Propose `memoryCandidates` only for reusable decisions, constraints, facts, risks, or open questions. Do not turn routine progress or temporary findings into memory.
 
 ## Idle Work Discovery
 
@@ -75,6 +76,8 @@ When the lead or host dispatches work, expect the packet to contain:
 
 - `objective`: the concrete result requested from this worker.
 - `workItem.id`, `workItem.title`, `workItem.scopeBrief`, `workItem.acceptanceCriteria`, `workItem.inputPacket`, `workItem.outputContract`, `workItem.dependsOn`, and `workItem.concurrencyMode`.
+- `relatedWorkItems` or `dependencyItems` with dependency item ids, titles, descriptions, statuses, and output paths when `workItem.dependsOn` is present.
+- `acceptedUpstreamItems` for aggregation/synthesis/delivery work, usually merged from `workItem.inputPacket.acceptedUpstreamItems` and accepted dependency summaries.
 - `projectFiles` or `workItem.inputPacket.projectFiles` when the lead linked uploaded project files with `@path` mentions.
 - `memoryRefs` when the lead or host found relevant durable project memory for this assignment.
 - `goal` and `feature` summaries when relevant.

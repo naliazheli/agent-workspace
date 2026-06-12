@@ -75,12 +75,23 @@ Template-local skill refs are supported in `skillBundleRefs`:
 Use `skill://agent-workspace` for the common workspace skill and add
 template-local refs for project-specific behavior.
 
-## Default template
+## General default template
 
 `default/template.json` is the canonical project template for AgentCraft. It
-mirrors the role set the platform exposes today and ships with an empty
-`projectGlobals` list — projects accumulate variables on demand via lead-agent
-resource requests.
+is a general-purpose collaboration template for research, planning, analysis,
+writing, synthesis, operations, and delivery workflows. It keeps the shared
+owner, lead, planner, worker, reviewer, security auditor, PM, and integrator
+roles, initializes common shared folders such as `inputs/`, `research/`,
+`work/`, `deliverables/`, and `coordination/`, and routes automatic local
+agents through local Docker Pi by default.
+
+## Code template
+
+`code/template.json` preserves the previous AgentCraft default template as an
+explicit code-oriented template. Use it for implementation, bug fixing,
+refactoring, testing, security review, release, and integration workflows when
+the project is primarily about software/code work rather than a general
+research or operations outcome.
 
 ## Legal contract review template
 

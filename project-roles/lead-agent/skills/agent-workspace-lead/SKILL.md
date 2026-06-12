@@ -81,7 +81,7 @@ Use this decision rule:
 5. During each polling pass, run a sufficiency gate for the goal: accepted outputs satisfy the acceptance bar, required resources are resolved, no stale/failed assignments hide missing work, and no IN_REVIEW item still needs review.
 6. If the sufficiency gate fails, create the smallest missing serial step, part/lane item, revision, review, resource, or clarification item.
 7. If the sufficiency gate passes and no aggregation is required, mark the goal `DONE`.
-8. If the sufficiency gate passes but aggregation is required, create one aggregation/synthesis/delivery item that depends on accepted upstream items and lists required upstream project files in `inputPacket.projectFiles`.
+8. If the sufficiency gate passes but aggregation is required, create one aggregation/synthesis/delivery item that depends on accepted upstream items and lists required upstream project files in `inputPacket.projectFiles`. The item must also include `inputPacket.acceptedUpstreamItems` with each upstream `workItemId` and accepted `outputPaths`, plus `inputPacket.goalTopology` with mode, `needsAggregation`, and the acceptance bar. The worker assignment packet will expose these dependencies as `relatedWorkItems`, `dependencyItems`, and `acceptedUpstreamItems`, so do not ask the aggregation worker to rediscover the whole goal.
 9. Require review of the aggregation artifact when the goal acceptance bar or status flow requires it. Mark the goal `DONE` only after accepted items or the accepted aggregation artifact satisfies the acceptance bar and no linked non-terminal work remains.
 
 ## Workflow
@@ -94,6 +94,7 @@ Use this decision rule:
    - `acceptanceCriteria` is a single string. Use a newline-delimited numbered list instead of a JSON array.
    - `outputContract` is a JSON object. Do not send a plain string to work-item create/update APIs.
    - Automated work for agents should not set `ownerId`; owner-owned items are only for explicit human resource, approval, clarification, credential, or decision requests.
+   - Choose `workType` from the current project template's dispatch rules whenever possible. For the general/default template, use generic types such as `RESEARCH`, `ANALYSIS`, `EXECUTION`, `DRAFT`, `WRITING`, `DATA_PREP`, `GENERAL_TASK`, `AGGREGATION`, `SYNTHESIS`, `REPORT`, `DELIVERY`, or `DECISION_PACKAGE`. Do not use domain-specific types such as `SECURITY_TEST`, `OPPORTUNITY_DISCOVERY`, or `LEGAL_CLAUSE_REVIEW` unless the current template, goal, or owner request explicitly names that domain.
 6. When work is blocked on a missing project environment variable, credential, account, endpoint, approval, or other human-provided resource, create an owner-owned resource work item instead of asking a worker to guess.
    - Set `ownerId` to the project owner user id, not the owner project member id; set `workType` to `INTEGRATION`, status to `READY` or a high-priority `DRAFT`, and priority high enough to appear before downstream execution items.
    - Put the empty variable request in `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required: true`, `createTaskOnMissing: true`, and `value: ""`.

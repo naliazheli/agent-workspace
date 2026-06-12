@@ -43,7 +43,12 @@ When the target goal needs more than one bounded item, propose a completion topo
 4. Create one bounded item per lane, phase, or small batch. Avoid a single oversized "do everything" item.
 5. Put topology metadata in `inputPacket.goalTopology`, slice metadata in `inputPacket.workSlice`, required project files in `inputPacket.projectFiles`, and required globals in `inputPacket.requiredGlobals`. Existing report templates may keep `reportGoal` and `researchSlice` as aliases.
 6. Put exact promised output paths in `outputProjectFiles` or `outputContract.sharedFiles`. Downstream serial or aggregation work must be able to read those paths without guessing.
-7. Create an aggregation/synthesis/delivery item only after upstream dependencies are accepted, or leave it DRAFT/blocked with explicit `dependsOn` until the lead fan-in gate passes.
+7. Create an aggregation/synthesis/delivery item only after upstream dependencies are accepted, or leave it DRAFT/blocked with explicit `dependsOn` until the lead fan-in gate passes. Aggregation items must carry enough context for a worker to start without re-scanning the project:
+   - top-level `dependsOn` contains the accepted upstream work item ids.
+   - `inputPacket.goalTopology` records mode, `needsAggregation`, and acceptance bar.
+   - `inputPacket.projectFiles` lists accepted upstream shared files with `path` and `source`.
+   - `inputPacket.acceptedUpstreamItems` lists `{ "workItemId": "...", "outputPaths": [...] }` for each accepted upstream item.
+   - `outputContract.type` is `aggregation-output`, `synthesis-output`, or `delivery-output`, with exact `sharedFiles`.
 8. Create owner resource items before blocked execution items. Do not ask workers to obtain or guess missing credentials, paid data access, accounts, approvals, or input files.
 9. If feature groups help scanning, use them as lanes, parts, or phases. Do not create a feature group merely to contain one item.
 

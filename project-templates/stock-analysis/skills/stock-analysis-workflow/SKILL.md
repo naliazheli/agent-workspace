@@ -110,6 +110,11 @@ Use this lane structure for ordinary stock-analysis goals that need a combined d
 3. `RISK_REVIEW` runs after data and at least one analysis artifact are present.
 4. `DECISION_SYNTHESIS` runs only after data, technical, intelligence, and risk
    artifacts are accepted or explicitly unavailable with reasons.
-5. `REPORT_DELIVERY` runs only after decision artifacts are accepted.
-6. `REVIEW_AGENT` gates evidence and final reports before downstream synthesis
+5. `DECISION_SYNTHESIS` and `REPORT_DELIVERY` work items must name accepted
+   upstream work item ids in `dependsOn`, list every accepted upstream artifact
+   in `inputPacket.projectFiles`, and include `inputPacket.acceptedUpstreamItems`
+   with `{ workItemId, outputPaths }` so the assignee can open exact upstream
+   details only when the file packet is insufficient.
+6. `REPORT_DELIVERY` runs only after decision artifacts are accepted.
+7. `REVIEW_AGENT` gates evidence and final reports before downstream synthesis
    or goal completion.

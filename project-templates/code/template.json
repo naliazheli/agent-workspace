@@ -1,7 +1,7 @@
 {
-  "id": "default",
-  "label": "General Project Template",
-  "description": "General-purpose AgentCraft project template for research, planning, analysis, writing, synthesis, operations, and delivery workflows. It keeps the shared owner, lead, planner, worker, reviewer, PM, security, and integrator roles while routing local agents through local Docker Pi by default.",
+  "id": "code",
+  "label": "Code Project Template",
+  "description": "Code-oriented project template that preserves the previous AgentCraft default role set: owner, lead, planner, worker, reviewer, security auditor, PM, and integrator. Use it for implementation, bug fixing, refactoring, testing, security review, release, and integration workflows.",
   "version": "0.1",
   "settings": {
     "maxActiveAgents": 10,
@@ -53,12 +53,12 @@
   ],
   "projectFileFolders": [
     "inputs",
-    "research",
     "work",
+    "reports",
     "deliverables",
     "reviews",
-    "coordination",
-    "scratch"
+    "scratch",
+    "coordination"
   ],
   "workItemStatusFlow": {
     "initialStatus": "READY",
@@ -129,14 +129,6 @@
       },
       {
         "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["RESEARCH", "ANALYSIS", "EXECUTION", "DRAFT", "WRITING", "DATA_PREP", "GENERAL_TASK"],
-        "role": "WORKER_AGENT",
-        "maxAgents": 10,
-        "forceLaunchNew": false,
-        "objective": "Execute the scoped research, analysis, writing, data preparation, or general task; write required artifacts; verify the result; and hand it off for review."
-      },
-      {
-        "statuses": ["READY", "NEEDS_REVISION"],
         "workTypes": ["SECURITY_REVIEW"],
         "role": "SECURITY_AUDITOR",
         "maxAgents": 2,
@@ -145,19 +137,11 @@
       },
       {
         "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["AGGREGATION", "SYNTHESIS", "REPORT", "INTEGRATION", "DELIVERY", "DECISION_PACKAGE"],
+        "workTypes": ["REPORT", "INTEGRATION", "DELIVERY"],
         "role": "INTEGRATOR_AGENT",
         "maxAgents": 2,
         "forceLaunchNew": false,
-        "objective": "Aggregate accepted upstream items, synthesize findings, or prepare the requested delivery, report, external handoff, or decision package."
-      },
-      {
-        "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["COORDINATION_CHECK", "RISK_CHECK", "STATUS_REVIEW"],
-        "role": "PM_AGENT",
-        "maxAgents": 1,
-        "forceLaunchNew": false,
-        "objective": "Inspect coordination health, risks, blockers, owner actions, and next-step clarity for the project."
+        "objective": "Prepare or connect accepted work to the requested delivery, external system, report, CI, release, or handoff."
       },
       {
         "statuses": ["IN_REVIEW"],
@@ -186,7 +170,6 @@
         "WORKER_AGENT": 10,
         "REVIEW_AGENT": 3,
         "SECURITY_AUDITOR": 2,
-        "PM_AGENT": 1,
         "INTEGRATOR_AGENT": 2
       }
     }
