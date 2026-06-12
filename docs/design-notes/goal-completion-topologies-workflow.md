@@ -2,7 +2,6 @@
 
 > Status: Draft design
 > Scope: shared project workflow contract for goals whose completion may be direct, serial, fan-out/fan-in, or iterative.
-> Note: the filename keeps its earlier report-oriented name for traceability; the contract is now goal-topology based.
 
 ## Problem
 
@@ -14,7 +13,7 @@ The current project loop already has the right primitives:
 - `Coordinator` dispatches ready items by role and capacity.
 - `Memory`, shared files, and resource requests preserve cross-item context.
 
-The missing contract is not limited to report goals. Some goals can be completed by one item, some need a serial chain, some need several workers to collect partial outputs before an aggregation step, and some need review/revision loops. If the roles do not share this completion-topology contract, agents tend to either synthesize too early, create unnecessary work, or mark a goal done merely because no open item is visible.
+The missing contract is topology, not a specific deliverable type. Some goals can be completed by one item, some need a serial chain, some need several workers to collect partial outputs before an aggregation step, and some need review/revision loops. If the roles do not share this completion-topology contract, agents tend to either synthesize too early, create unnecessary work, or mark a goal done merely because no open item is visible.
 
 ## Goal Completion Topologies
 
@@ -29,7 +28,7 @@ Common topologies:
 5. `TOTAL_PARTS_TOTAL`: lead or planner creates a total plan, part items, then a final aggregation/synthesis/delivery item.
 6. `ITERATIVE_REVIEW`: a worker item cycles through review and bounded revision until accepted, rejected, or superseded.
 
-The key distinction is whether the goal acceptance bar requires an aggregation deliverable. A stock report does; a batch of independent fixes may not. Lead must inspect the accepted work, dependencies, output contracts, and goal acceptance bar before deciding.
+The key distinction is whether the goal acceptance bar requires an aggregation deliverable. A combined recommendation, release package, or final decision memo may require one; a batch of independent fixes may not. Lead must inspect the accepted work, dependencies, output contracts, and goal acceptance bar before deciding.
 
 ## Target Pattern
 
@@ -79,7 +78,7 @@ flowchart TD
   aggregationNeeded{"Goal needs aggregation deliverable?"}
   aggregationItem["Aggregation/synthesis/delivery item\nDepends on accepted upstream outputs"]
   aggregator["Aggregator role\nreads accepted upstream files/items"]
-  aggregateOutput["Combined artifact or decision\nreport, summary, package, release, recommendation"]
+  aggregateOutput["Combined artifact or decision\nsummary, package, release, recommendation"]
   aggregateReview["Aggregation review\ncoverage, support, caveats, acceptance bar"]
   aggregateAccepted{"Aggregation accepted?"}
   done["Lead marks Goal DONE\ncompletion summary links support artifacts"]
@@ -137,7 +136,7 @@ flowchart LR
   leadWorkspace["Lead workspace file\ncoordination/lead.md"]
   ledger["Lead ledger file\ncoordination/lead-goal-ledger.jsonl"]
   resource["Resource\nproject global or owner item"]
-  file["Project shared file\ninputs, evidence, outputs, reports"]
+  file["Project shared file\ninputs, evidence, outputs, deliverables"]
   memory["Memory\nreviewed durable knowledge"]
   artifact["Artifact or handoff"]
   review["Review"]
@@ -238,24 +237,23 @@ Recommended `inputPacket` fields:
 {
   "goalTopology": {
     "mode": "FAN_OUT_FAN_IN",
-    "runId": "2026-06-11-stock-cycle",
+    "runId": "<cycle-or-milestone-id>",
     "needsAggregation": true,
-    "aggregationArtifactPaths": ["reports/2026-06-11/dashboard.md"],
-    "acceptanceBar": "Owner-facing informational analysis with source freshness and risk disclosure."
+    "aggregationArtifactPaths": ["deliverables/<goal-id>/final-summary.md"],
+    "acceptanceBar": "Owner-facing deliverable with sources, caveats, and explicit decisions."
   },
   "workSlice": {
-    "lane": "technical-analysis",
-    "symbols": ["AAPL", "MSFT"],
-    "scope": "Trend, support/resistance, momentum, invalidation levels."
+    "lane": "source-research",
+    "scope": "Collect bounded evidence for one part of the goal and name blockers."
   },
   "projectFiles": [
-    { "path": "data/2026-06-11/AAPL-market-data.md", "source": "dependency" }
+    { "path": "inputs/<goal-id>/brief.md", "source": "owner" }
   ],
-  "requiredGlobals": ["stock_watchlist"]
+  "requiredGlobals": ["<required_resource_key>"]
 }
 ```
 
-Backward compatibility: existing templates may still use `inputPacket.reportGoal` or `inputPacket.researchSlice`; treat them as report-specific aliases for `goalTopology` and `workSlice`.
+Backward compatibility: existing domain templates may still carry older domain-specific input aliases. Treat them as compatibility shims and normalize new work to `goalTopology` and `workSlice`.
 
 Recommended `outputContract` fields:
 
@@ -263,8 +261,8 @@ Recommended `outputContract` fields:
 {
   "type": "aggregation-input",
   "description": "A bounded upstream artifact for one goal lane.",
-  "expectedArtifacts": ["analysis/2026-06-11/AAPL-technical.md"],
-  "sharedFiles": ["analysis/2026-06-11/AAPL-technical.md"],
+  "expectedArtifacts": ["work/<goal-id>/source-research.md"],
+  "sharedFiles": ["work/<goal-id>/source-research.md"],
   "mustInclude": [
     "source paths read",
     "freshness or staleness notes",
@@ -316,13 +314,13 @@ Aggregation items should list every accepted upstream artifact in `inputPacket.p
    - reject aggregation that does not read accepted upstream files/items,
    - reject upstream artifacts without source/freshness notes when the domain requires them,
    - persist only reviewed durable memory candidates.
-5. For templates such as `stock-analysis`, map generic topology work types to template-specific ones:
-   - `PLANNING` -> `STOCK_ANALYSIS_PLANNING`
-   - `COLLECTION` -> `MARKET_DATA_COLLECTION`
-   - `ANALYSIS` -> `TECHNICAL_ANALYSIS`, `INTELLIGENCE_RESEARCH`, `RISK_REVIEW`
-   - `AGGREGATION` -> `DECISION_SYNTHESIS`
-   - `DELIVERY` -> `REPORT_DELIVERY`
-   - `REVIEW` -> `REVIEW_AGENT` on `IN_REVIEW`
+5. Domain templates may map generic topology work types to template-specific work types while preserving the common contract:
+   - `PLANNING` -> template planning item
+   - `COLLECTION` -> bounded source or data collection item
+   - `ANALYSIS` -> bounded domain analysis item
+   - `AGGREGATION` -> synthesis, package, delivery, or decision item
+   - `DELIVERY` -> final owner-facing deliverable item
+   - `REVIEW` -> reviewer role on `IN_REVIEW`
 
 ## Completion Rules
 
