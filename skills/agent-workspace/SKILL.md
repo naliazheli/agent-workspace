@@ -28,7 +28,7 @@ Use this as the common entry skill for every `agent-workspace` runtime. It defin
    - If the resume response includes `boardSnapshot`, treat its goals, features, and work items as the current attention slice.
    - If `boardSnapshot` is missing or appears incomplete for the role, call `GET /v1/projects/{projectId}/board` before saying that no goals or work exist.
    - For lead/PM goal-frontier review, use paginated `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100` and `GET /v1/projects/{projectId}/work-items?includeClosed=true&limit=100` instead of relying only on the board slice.
-   - For lead/PM polling over many goals, maintain a durable goal ledger such as `coordination/lead-goal-ledger.jsonl` in project shared storage. Read it at the start of the polling run, append one record after each inspected goal, and use the latest record per goal to skip only unchanged goals that have no lead-attention work.
+   - For lead/PM polling over many goals, maintain a human-readable lead workspace such as `coordination/lead.md` and a durable goal ledger such as `coordination/lead-goal-ledger.jsonl` in project shared storage. Read both at the start of the polling run, append one ledger record after each inspected goal, and update `lead.md` before stopping with the cursor, next goal queue, skipped reasons, and unresolved blockers.
    - Advance cursors from the returned `lastSeq` or equivalent resume cursor.
 5. Heartbeat while working.
    - Send presence updates during long work.
@@ -64,16 +64,54 @@ Do not load the full project by default. A worker should use `taskPacket.get`; a
 Treat `boardSnapshot` as an attention slice, not an exhaustive archive. Closed goals and work items may appear only in `statusCounts`; request `mode=planning` or `includeClosed=true` only when history is explicitly needed. When a lead must manage every active goal or compare item coverage against goal closure criteria, paginate `/goals` and `/work-items` and reconcile by `goalId`.
 Do not infer that the project has no goals from an empty inbox or empty assignments. Use `boardSnapshot.goalSummaries`, `boardSnapshot.backlogGoalSummaries`, and `boardSnapshot.statusCounts.goals` from resume, or fetch the board directly, before reporting goal state.
 
+### Lead Workspace
+
+For long-running lead/PM polling, keep a small human-readable workspace in project shared storage. Use `coordination/lead.md` unless the project template names a more specific path.
+
+`lead.md` is a dashboard and checkpoint, not the source of truth. Goal, work item, assignment, review, resource, file, and memory truth still comes from the workspace and host APIs.
+
+Recommended shape:
+
+```md
+# Lead Workspace
+
+## Current Frontier Policy
+- Max goals per polling tick: 5
+- Priority order: lead-attention items, changed digest, blocked goals, oldest unchecked
+
+## Polling Cursor
+- lastRunId:
+- nextGoalCursor:
+- unfinishedScanReason:
+
+## Active Goal Queue
+| goalId | topology | lastDigest | leadAttention | nextAction |
+|---|---|---|---|---|
+
+## Project-Level Decisions
+-
+
+## Open Risks / Owner Gates
+-
+```
+
+At the start of a polling run, read `coordination/lead.md` if present to recover the previous cursor, priority queue, project-level decisions, and unresolved blockers. Do not ask the host to inject the full file into the prompt; read it through project-file-read so normal project-file authorization and token limits apply.
+
+Before stopping a polling run, update `coordination/lead.md` when the frontier changed or the pass did not finish. Include `lastRunId`, `nextGoalCursor`, `unfinishedScanReason`, a compact next-goal queue, unresolved blockers, and any project-level decisions that should survive chat/session loss.
+
+For very complex goals, a lead may create `coordination/goals/<goalId>.md`, but do not create per-goal files for ordinary goals. Prefer the JSONL ledger for per-goal machine state.
+
 ### Lead Goal Ledger
 
 For long-running lead/PM polling, track goal-frontier progress in project shared storage instead of relying on chat history or runtime memory. Use `coordination/lead-goal-ledger.jsonl` unless the project template names a more specific ledger path.
 
 At the start of a polling run:
 
-1. Read the existing ledger if it exists.
-2. Page through active goals with `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100`.
-3. For each goal, read only that goal's work items with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&includeClosed=true&limit=100&page=1`.
-4. Compute a compact `statusDigest` from goal id/status/updatedAt, linked work item ids/statuses/workTypes, and open assignment statuses.
+1. Read `coordination/lead.md` if it exists.
+2. Read the existing ledger if it exists.
+3. Page through active goals with `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100`.
+4. For each goal under consideration, read only that goal's work items with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&includeClosed=true&limit=100&page=1`.
+5. Compute a compact `statusDigest` from goal id/status/updatedAt, linked work item ids/statuses/workTypes, and open assignment statuses.
 
 After inspecting a goal, append a JSONL record with:
 
@@ -89,7 +127,37 @@ After inspecting a goal, append a JSONL record with:
 }
 ```
 
-On later polling runs, skip a goal only when its latest ledger record has the same `statusDigest` and there is no `READY`, `NEEDS_REVISION`, `IN_REVIEW`, `ownerAction`, or `resourceRequest` work that needs lead attention. If a runtime stops mid-pass, the next run resumes from the ledger and does not need to restart the entire project scan.
+On later polling runs, skip a goal only when its latest ledger record has the same `statusDigest` and there is no `READY`, `NEEDS_REVISION`, `IN_REVIEW`, `ownerAction`, or `resourceRequest` work that needs lead attention. If a runtime stops mid-pass, the next run resumes from `lead.md` and the ledger instead of restarting the entire project scan.
+
+### Lead Polling Frontier Review
+
+Lead polling is a project-wide control loop, not a worker task. When a lead receives a timed polling message or a message with `Wake reason: ...`, treat it as a fresh frontier-review pass.
+
+Read enough context to decide, but avoid broad project-wide detail scans. Read, in order:
+
+1. `runtime.resume`, inbox, active assignments, `boardSnapshot`, and the event cursor.
+2. Project globals with `GET /v1/projects/{projectId}/globals?includeValues=true`.
+3. Active goals with `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100`.
+4. For each active goal under consideration, linked work item summaries with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&includeClosed=true&limit=100&page=1`.
+5. Exact work-item detail only when it can change the lead decision: pending review, NEEDS_REVISION, owner resource/action, failed or stale assignment, dependency input, aggregation candidate, or candidate goal completion.
+6. Recent events with `GET /v1/projects/{projectId}/events` and members/runtime summaries with `GET /v1/projects/{projectId}/members`.
+7. Assignment/runtime health with `GET $AIFACTORY_API_BASE_URL/projects/{projectId}/assignments/runtime-state?limit=100` using `AIFACTORY_RUNTIME_TOKEN` when available.
+8. The lead workspace and ledger with `project-file-read`; project shared files only for paths named by accepted upstream outputs, output contracts, handoffs, or a candidate final/aggregation artifact.
+9. Targeted memory search only for reusable decisions, constraints, facts, risks, and open questions relevant to the goal being inspected.
+
+Then decide per goal:
+
+- Skip only when the ledger digest is unchanged and no READY, NEEDS_REVISION, IN_REVIEW, owner resource/action, failed assignment, or blocked dependency needs lead attention.
+- Classify the goal completion topology: `DIRECT`, `SERIAL`, `FAN_OUT_FAN_IN`, `TOTAL_TO_PARTS`, `TOTAL_PARTS_TOTAL`, or `ITERATIVE_REVIEW`.
+- Create or surface owner-owned resource items when required globals or approvals are missing.
+- Create the smallest missing READY/NEEDS_REVISION work item when execution, review, integration, aggregation, delivery, or a serial next step is missing.
+- Leave coordinator-enabled projects to the COORDINATOR for assignment and launch. Use host `runtime-dispatch` only as an explicit fallback.
+- If accepted upstream work is sufficient but the goal requires a combined deliverable, create an aggregation/synthesis/delivery item instead of closing the goal.
+- Mark a goal `DONE` only after accepted items or an accepted aggregation artifact satisfies the goal acceptance bar and no linked non-terminal work remains.
+- Write a ledger record after every inspected goal, including skips, blockers, and created work item ids.
+- Before stopping, update `coordination/lead.md` with the polling cursor, skipped reasons, next goal queue, unresolved blockers, and project-level decisions.
+
+For aggregation-required goals, run the fan-out/fan-in pattern: plan bounded lanes or parts, create parallel or serial upstream items according to the topology, wait for accepted upstream outputs and resolved resources, create aggregation only when the fan-in gate passes, require review when the acceptance bar or status flow requires it, then close the goal.
 
 ## Authorization Rules
 

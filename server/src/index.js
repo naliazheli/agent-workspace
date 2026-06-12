@@ -51,6 +51,32 @@ const CLOSED_WORK_ITEM_STATUSES = ['ACCEPTED', 'CANCELLED'];
 const ATTENTION_WORK_ITEM_STATUSES = ['NEEDS_REVISION', 'IN_REVIEW', 'READY', 'ASSIGNED', 'IN_PROGRESS', 'REJECTED'];
 const OPEN_ASSIGNMENT_STATUSES = ['PROPOSED', 'ACTIVE', 'PAUSED'];
 const OPEN_INBOX_STATUSES = ['UNREAD', 'READ', 'ACKED'];
+const DEFAULT_PROJECT_MAX_ACTIVE_AGENTS = 10;
+const PROJECT_MAX_ACTIVE_AGENTS_CAP = 50;
+const DEFAULT_PROJECT_MAX_ACTIVE_GOALS = 5;
+const PROJECT_MAX_ACTIVE_GOALS_CAP = 50;
+
+function normalizeProjectPositiveLimit(value, fallback, cap) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(Math.max(Math.floor(numeric), 1), cap);
+}
+
+function normalizeProjectScaleSettings(settings) {
+  const base = settings && typeof settings === 'object' && !Array.isArray(settings) ? { ...settings } : {};
+  base.maxActiveAgents = normalizeProjectPositiveLimit(
+    base.maxActiveAgents,
+    DEFAULT_PROJECT_MAX_ACTIVE_AGENTS,
+    PROJECT_MAX_ACTIVE_AGENTS_CAP,
+  );
+  base.maxActiveGoals = normalizeProjectPositiveLimit(
+    base.maxActiveGoals,
+    DEFAULT_PROJECT_MAX_ACTIVE_GOALS,
+    PROJECT_MAX_ACTIVE_GOALS_CAP,
+  );
+  return base;
+}
 
 async function reconcileStaleProjectRuntimes(projectId) {
   const staleSeconds = Number(env.AGENT_WORKSPACE_RUNTIME_ACTIVE_STALE_SECONDS);
@@ -1872,12 +1898,12 @@ app.post('/v1/projects', async (request) => {
         leadAgentUserId: lead?.id ?? null,
         budgetAmount: input.budgetAmount ?? 0,
         budgetCurrency: input.budgetCurrency ?? 'AIC',
-        settings: {
+        settings: normalizeProjectScaleSettings({
           ...(input.settings ?? {}),
           githubUrl: input.githubUrl ?? null,
           source: input.source ?? null,
           initialLinks: input.initialContext?.links ?? [],
-        },
+        }),
       },
     });
 
@@ -1924,12 +1950,12 @@ app.post('/v1/projects', async (request) => {
     await tx.project.update({
       where: { id: createdProject.id },
       data: {
-        settings: {
+        settings: normalizeProjectScaleSettings({
           ...(createdProject.settings ?? {}),
           externalRef: input.externalRef ?? null,
           ownerMemberId: ownerMember.id,
           leadMemberId: leadMember?.id ?? null,
-        },
+        }),
       },
     });
 
@@ -2002,10 +2028,10 @@ app.patch('/v1/projects/:projectId', async (request) => {
       ? project.settings
       : {};
 
-  const mergedSettings = {
+  const mergedSettings = normalizeProjectScaleSettings({
     ...existingSettings,
     ...(input.settings ?? {}),
-  };
+  });
 
   if (input.githubUrl !== undefined) {
     if (input.githubUrl) {

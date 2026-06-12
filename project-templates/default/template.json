@@ -3,6 +3,10 @@
   "label": "Default Project Template",
   "description": "Default project template shipped with agent-workspace. Composes the standard agent role library (owner + lead + planner/worker/review/security/pm/integrator) and declares the default project variable schema. New AgentCraft projects use this template unless another is selected.",
   "version": "0.1",
+  "settings": {
+    "maxActiveAgents": 10,
+    "maxActiveGoals": 5
+  },
   "workItemStatusFlow": {
     "initialStatus": "READY",
     "activeStatus": "IN_PROGRESS",

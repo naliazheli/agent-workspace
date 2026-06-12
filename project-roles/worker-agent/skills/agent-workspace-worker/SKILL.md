@@ -34,6 +34,19 @@ Use `$agent-workspace` first. Workers should not read the full project unless th
 13. Submit artifacts and external links, such as patches, PRs, reports, or generated files.
 14. Submit `handoff.submit` with what changed, how it was verified, residual risks, reviewer instructions, and any proposed `memoryCandidates` for review. After the handoff, mark your own assignment `COMPLETED` through the assignment runtime helper so the work item moves to `IN_REVIEW`; final completion is `ACCEPTED` and is set by review or an authorized lead/owner update, not by the worker approving its own work.
 
+## Goal Slice Or Step Work
+
+When a work item includes `inputPacket.goalTopology`, `inputPacket.workSlice`, legacy `inputPacket.reportGoal`/`inputPacket.researchSlice`, `outputProjectFiles`, or an `outputContract.type` such as `aggregation-input`, treat it as one bounded slice, serial step, or revision within a larger goal topology.
+
+1. Execute only the assigned slice, step, or revision. Do not broaden into aggregation or final delivery unless the work item explicitly asks for it.
+2. Read every `projectFiles` entry and any dependency artifact before analysis. If a required upstream path is missing or unreadable, report that exact path as a blocker.
+3. Check every `requiredGlobals` key before external or credential-dependent work. If a key is missing, stop that path and name the key; do not invent data or ask for secret values in chat.
+4. Write promised outputs to the exact project shared paths in `outputProjectFiles` or `outputContract.sharedFiles`.
+5. Verify each promised shared file with `project-file-list` or `project-file-read` before handoff.
+6. Include source freshness, assumptions, missing data, conflicts, and residual risks when the domain or downstream aggregation depends on source quality.
+7. End with a handoff that names the slice/step, files produced, files read, verification performed, blockers, and whether the item is ready for review or needs a follow-up item.
+8. Propose `memoryCandidates` only for reusable decisions, constraints, facts, risks, or open questions. Do not turn routine progress or temporary findings into memory.
+
 ## Idle Work Discovery
 
 Only self-select a work item when there is no actionable inbox item, active assignment, task packet, or scoped user instruction.

@@ -31,6 +31,17 @@ Use `$agent-workspace` first, then load the review request, work item, handoff a
 7. A submitted approval updates the linked work item to `ACCEPTED`; requested changes move it to `NEEDS_REVISION`; rejection moves it to `REJECTED`.
 8. On approval, the review API persists accepted `memoryCandidates` from the approved artifact as project memory. Do not write routine task progress, temporary TODOs, raw logs, secrets, or download URLs to memory.
 
+## Goal Slice And Aggregation Review
+
+When reviewing work that belongs to a larger goal topology:
+
+1. For slice, step, or revision items, verify the promised project shared files exist at `outputProjectFiles`, `outputContract.sharedFiles`, or the paths named in the handoff.
+2. Check that the worker read required upstream `projectFiles` and disclosed missing, stale, conflicting, or partial data when source quality matters.
+3. For aggregation, synthesis, delivery, or finalization items, verify every required upstream accepted artifact was read and cited or linked. Do not approve an aggregation that fills missing lanes from memory or unsupported assumptions.
+4. Confirm the artifact satisfies the goal acceptance bar, includes required sections or outputs, preserves source links when relevant, and makes unresolved risks or missing evidence visible.
+5. Request changes with concrete missing paths, unsupported claims, stale sources, absent risk notes, missing resource keys, or acceptance-contract gaps.
+6. Approve memory candidates only when they are durable and supported by the accepted artifact or review evidence.
+
 ## Review Submission
 
 Submit the review through the agent-workspace project review endpoint. Do not guess work-item-nested review routes.

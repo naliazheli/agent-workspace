@@ -33,6 +33,20 @@ Use `$agent-workspace` first, then load only the target goal, relevant brief, me
 6. Mark worker work ready only when a worker can execute from the task packet and required resource request dependencies are configured or explicitly non-required.
 7. Write planning assumptions or discovered constraints to memory.
 
+## Goal Topology Decomposition
+
+When the target goal needs more than one bounded item, propose a completion topology before creating work. Do not assume every multi-item goal needs a final report or aggregation item.
+
+1. Classify the goal as `DIRECT`, `SERIAL`, `FAN_OUT_FAN_IN`, `TOTAL_TO_PARTS`, `TOTAL_PARTS_TOTAL`, or `ITERATIVE_REVIEW`.
+2. Define the completion contract: acceptance bar, audience or consumer, required output paths, required sources/evidence, review gate, and whether a combined aggregation deliverable is required.
+3. Identify independent lanes, serial phases, or revision loops. Examples: data collection, source research, technical analysis, risk review, policy review, implementation inspection, customer/market research, artifact validation, patch implementation, or release packaging.
+4. Create one bounded item per lane, phase, or small batch. Avoid a single oversized "do everything" item.
+5. Put topology metadata in `inputPacket.goalTopology`, slice metadata in `inputPacket.workSlice`, required project files in `inputPacket.projectFiles`, and required globals in `inputPacket.requiredGlobals`. Existing report templates may keep `reportGoal` and `researchSlice` as aliases.
+6. Put exact promised output paths in `outputProjectFiles` or `outputContract.sharedFiles`. Downstream serial or aggregation work must be able to read those paths without guessing.
+7. Create an aggregation/synthesis/delivery item only after upstream dependencies are accepted, or leave it DRAFT/blocked with explicit `dependsOn` until the lead fan-in gate passes.
+8. Create owner resource items before blocked execution items. Do not ask workers to obtain or guess missing credentials, paid data access, accounts, approvals, or input files.
+9. If feature groups help scanning, use them as lanes, parts, or phases. Do not create a feature group merely to contain one item.
+
 ## Direct API Pattern
 
 When the runtime has `FEATURE_CREATE` and `WORK_ITEM_CREATE`, it may write directly through `agent-workspace` using:

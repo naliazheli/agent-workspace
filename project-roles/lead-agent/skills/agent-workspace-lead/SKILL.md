@@ -44,6 +44,46 @@ On every wake or state-changing pass, actively manage the `/goal` frontier inste
 6. If all required items are `ACCEPTED` and the evidence is sufficient, update the goal status to `DONE` with a concise completion summary or use the available `goal.update` helper. Use goal close/cancel flows only when the owner or project state means the goal should be abandoned or cancelled, because close/cancel may cascade cleanup of unfinished work.
 7. If the goal cannot be completed in the current pass, leave or set the goal to `IN_PROGRESS` when work can continue, or `BLOCKED` when forward motion requires an owner/resource/budget/external event. Then create or dispatch the next item that can unblock it.
 
+## Lead Polling Frontier Pass
+
+Treat every timed polling conversation and every message containing `Wake reason: ...` as a fresh frontier-review pass.
+
+1. Resume through `$agent-workspace`, read inbox and events first, then read the lead workspace, lead ledger, project globals, active goals, linked work item summaries, members/runtimes, and assignment/runtime health.
+2. Read the lead workspace from project shared storage, preferably `coordination/lead.md` unless the project template names another path. Use it for the prior cursor, next-goal queue, project-level decisions, and unresolved blockers.
+3. Read the lead ledger from project shared storage, preferably `coordination/lead-goal-ledger.jsonl` unless the project template names another path.
+4. For each active goal, compute a compact status digest from goal id/status/updatedAt, linked work item ids/statuses/workTypes/dependencies, review state, resource item state, and open assignment statuses.
+5. Skip a goal only when the digest matches the latest ledger record and there is no READY, NEEDS_REVISION, IN_REVIEW, owner resource/action, failed assignment, stale assignment, or blocked dependency needing lead attention.
+6. Read exact work-item details, shared files, and targeted memory only when they can change the decision: pending review, NEEDS_REVISION, owner resource/action, failed or stale assignment, dependency input, aggregation candidate, or candidate goal completion.
+7. For every inspected goal, decide one next action: skip, create missing work, create/surface owner resource, request clarification, mark blocked, create aggregation/synthesis/delivery, or mark done.
+8. Write one ledger record after each inspected goal with `pollingRunId`, timestamp, `goalId`, topology, `statusDigest`, decision, next action, and created work item ids. Write before moving to the next goal so a stopped runtime can resume.
+9. Before stopping, update the lead workspace with `lastRunId`, `nextGoalCursor`, `unfinishedScanReason`, skipped reasons, the next-goal queue, unresolved blockers, and project-level decisions.
+10. In coordinator-enabled projects, do not dispatch just because polling woke you. Create or refine READY/NEEDS_REVISION items and let the COORDINATOR assign them unless coordinator dispatch is disabled, unavailable, or explicitly delegated to the lead.
+
+## Goal Completion Topologies
+
+Lead owns the goal-completion decision. Planner can propose a topology and item set; Coordinator dispatches items; workers and reviewers complete items; Lead decides whether the accepted items are enough for the goal or whether one more item is needed.
+
+Classify each active goal as one of these topologies:
+
+1. `DIRECT`: one bounded item can satisfy the goal.
+2. `SERIAL`: each next item depends on the previous accepted output.
+3. `FAN_OUT_FAN_IN`: independent lanes can run in parallel, then a later aggregation item may combine accepted upstream outputs.
+4. `TOTAL_TO_PARTS`: a total plan creates part items; the accepted parts themselves complete the goal.
+5. `TOTAL_PARTS_TOTAL`: a total plan creates part items; accepted parts then feed a final aggregation/delivery item.
+6. `ITERATIVE_REVIEW`: one item cycles through review and bounded revision until accepted or superseded.
+
+Use this decision rule:
+
+1. Identify the goal acceptance bar, required resources, promised output paths, dependencies, and whether a combined artifact or decision is required.
+2. If decomposition is non-trivial or the topology is unclear, create a planning item. Otherwise create only the next smallest executable item.
+3. For part/lane work, each item should name its `inputPacket.workSlice` (or legacy `researchSlice`), dependencies, `inputPacket.projectFiles`, required globals, and exact `outputProjectFiles` or `outputContract.sharedFiles`.
+4. Leave READY/NEEDS_REVISION items for the coordinator. Workers should write promised outputs to project shared files and verify those paths before handoff.
+5. During each polling pass, run a sufficiency gate for the goal: accepted outputs satisfy the acceptance bar, required resources are resolved, no stale/failed assignments hide missing work, and no IN_REVIEW item still needs review.
+6. If the sufficiency gate fails, create the smallest missing serial step, part/lane item, revision, review, resource, or clarification item.
+7. If the sufficiency gate passes and no aggregation is required, mark the goal `DONE`.
+8. If the sufficiency gate passes but aggregation is required, create one aggregation/synthesis/delivery item that depends on accepted upstream items and lists required upstream project files in `inputPacket.projectFiles`.
+9. Require review of the aggregation artifact when the goal acceptance bar or status flow requires it. Mark the goal `DONE` only after accepted items or the accepted aggregation artifact satisfies the acceptance bar and no linked non-terminal work remains.
+
 ## Workflow
 
 1. Resume from inbox and event stream before planning; react to pending reviews, blocked work, and owner gates first.

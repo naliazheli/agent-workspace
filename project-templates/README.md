@@ -106,6 +106,17 @@ programs. Goal-level target credentials should be requested through owner
 resource work items so future runtimes receive them as `PROJECT_GLOBAL_*`
 environment variables.
 
+## Stock analysis template
+
+`stock-analysis/template.json` coordinates informational stock and market
+analysis. It turns an owner watchlist, analysis horizon, risk profile, market
+scope, and cadence into multi-role analysis runs: market data collection,
+technical analysis, intelligence research, risk review, decision-support
+synthesis, report delivery, and quality review. It is inspired by
+`daily_stock_analysis` style pipelines, but remains a portable project template
+that writes durable run artifacts to shared project files and does not place
+trades or provide financial advice.
+
 ## Status
 
 This abstraction is additive. The `project-roles/` library remains the source

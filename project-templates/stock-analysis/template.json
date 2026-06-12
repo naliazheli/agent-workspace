@@ -1,0 +1,562 @@
+{
+  "id": "stock-analysis",
+  "label": "Stock Analysis",
+  "description": "Coordinates a multi-role stock analysis workflow: watchlist intake, market data collection, technical analysis, news and catalyst research, risk review, decision synthesis, report delivery, and quality review.",
+  "version": "0.1",
+  "settings": {
+    "maxActiveAgents": 10,
+    "maxActiveGoals": 20
+  },
+  "projectFileFolders": [
+    "inputs",
+    "data",
+    "analysis",
+    "reports",
+    "deliveries",
+    "reviews",
+    "runs",
+    "archived"
+  ],
+  "workItemStatusFlow": {
+    "initialStatus": "READY",
+    "activeStatus": "IN_PROGRESS",
+    "assignmentCompletedStatus": "IN_REVIEW",
+    "assignmentFailedStatus": "NEEDS_REVISION",
+    "reviewApprovedStatus": "ACCEPTED",
+    "reviewChangesRequestedStatus": "NEEDS_REVISION",
+    "reviewRejectedStatus": "REJECTED",
+    "closedStatus": "CANCELLED",
+    "statuses": [
+      {
+        "id": "READY",
+        "label": "Ready",
+        "category": "claimable",
+        "initial": true
+      },
+      {
+        "id": "ASSIGNED",
+        "label": "Assigned",
+        "category": "active"
+      },
+      {
+        "id": "IN_PROGRESS",
+        "label": "In Progress",
+        "category": "active"
+      },
+      {
+        "id": "IN_REVIEW",
+        "label": "In Review",
+        "category": "feedback"
+      },
+      {
+        "id": "NEEDS_REVISION",
+        "label": "Needs Revision",
+        "category": "claimable"
+      },
+      {
+        "id": "ACCEPTED",
+        "label": "Accepted",
+        "category": "completed",
+        "terminal": true,
+        "completed": true
+      },
+      {
+        "id": "REJECTED",
+        "label": "Rejected",
+        "category": "closed",
+        "terminal": true,
+        "closed": true
+      },
+      {
+        "id": "CANCELLED",
+        "label": "Cancelled",
+        "category": "closed",
+        "terminal": true,
+        "closed": true
+      }
+    ],
+    "dispatchRules": [
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "STOCK_ANALYSIS_INTAKE",
+          "STOCK_ANALYSIS_PLANNING"
+        ],
+        "role": "PLANNER_AGENT",
+        "maxAgents": 1,
+        "forceLaunchNew": false,
+        "objective": "Turn the owner watchlist, market scope, risk profile, and requested run cadence into a bounded stock-analysis run plan and ready downstream work items."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "MARKET_DATA_COLLECTION",
+          "MARKET_REVIEW_DATA"
+        ],
+        "role": "MARKET_DATA_AGENT",
+        "maxAgents": 3,
+        "forceLaunchNew": false,
+        "objective": "Collect and normalize market data, quote snapshots, recent bars, fundamentals, and source freshness notes for the assigned run and symbols."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "TECHNICAL_ANALYSIS"
+        ],
+        "role": "TECHNICAL_ANALYST",
+        "maxAgents": 4,
+        "forceLaunchNew": false,
+        "objective": "Analyze trend, price position, volume, support/resistance, momentum, and technical invalidation levels from the normalized market data."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "INTELLIGENCE_RESEARCH"
+        ],
+        "role": "INTELLIGENCE_AGENT",
+        "maxAgents": 4,
+        "forceLaunchNew": false,
+        "objective": "Research recent news, announcements, catalysts, sentiment, and information gaps for the assigned run and symbols."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "RISK_REVIEW"
+        ],
+        "role": "RISK_ANALYST",
+        "maxAgents": 3,
+        "forceLaunchNew": false,
+        "objective": "Identify downside scenarios, data-quality risks, liquidity risks, invalidation points, and risk controls from upstream data and analysis artifacts."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "DECISION_SYNTHESIS",
+          "MARKET_REVIEW_SYNTHESIS"
+        ],
+        "role": "DECISION_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Synthesize data, technical, intelligence, and risk artifacts into an informational decision-support report with confidence, caveats, and source links."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "REPORT_DELIVERY"
+        ],
+        "role": "REPORT_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Prepare owner-facing dashboards, notification-ready summaries, and final handoff packages from accepted decision artifacts."
+      },
+      {
+        "statuses": [
+          "IN_REVIEW"
+        ],
+        "role": "REVIEW_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Review stock-analysis artifacts for source freshness, internal consistency, risk disclosure, no-financial-advice language, and output-contract completeness."
+      }
+    ],
+    "coordinator": {
+      "enabled": true,
+      "minAgents": 0,
+      "maxAgents": 10,
+      "maxDispatchesPerTick": 3,
+      "maxAgentsByRole": {
+        "PLANNER_AGENT": 1,
+        "MARKET_DATA_AGENT": 3,
+        "TECHNICAL_ANALYST": 4,
+        "INTELLIGENCE_AGENT": 4,
+        "RISK_ANALYST": 3,
+        "DECISION_AGENT": 2,
+        "REPORT_AGENT": 2,
+        "REVIEW_AGENT": 2
+      }
+    }
+  },
+  "roles": [
+    {
+      "role": "OWNER",
+      "ref": "role://owner",
+      "auto": "OWNER",
+      "launchable": false,
+      "description": "Human project owner. Provides the watchlist, analysis horizon, risk profile, optional data/search credentials, portfolio context, and final interpretation decisions."
+    },
+    {
+      "role": "COORDINATOR",
+      "launchable": false,
+      "label": "Coordinator",
+      "description": "System role that reads stock-analysis dispatch rules, project/member capacity, and model API availability, then dispatches matching launchable roles."
+    },
+    {
+      "role": "LEAD_AGENT",
+      "ref": "role://lead-agent",
+      "auto": "ON_CREATE",
+      "launchable": false,
+      "label": "Stock Analysis Lead",
+      "description": "Coordinates recurring stock-analysis runs, checks owner-provided project globals, creates the smallest ready work items, and keeps final reports tied to durable project files.",
+      "initialPrompt": "You are the LEAD_AGENT for a stock analysis project. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Treat this as an informational research workflow, not financial advice. On every fresh pass or polling tick, inspect project globals, goals, work items, recent events, active assignments, assignment/runtime health, memory, and shared files under inputs/, runs/, data/, analysis/, reports/, deliveries/, and reviews/. Read runs/stock-analysis-lead.md if present, then read runs/stock-analysis-ledger.jsonl if present; compute a status digest per active run or goal, skip only unchanged goals with no READY/NEEDS_REVISION/IN_REVIEW/resource/failed-assignment attention item, and append one JSONL decision record after each inspected goal. Before stopping, update runs/stock-analysis-lead.md with the run cursor, skipped reasons, next run/goal queue, unresolved blockers, and project-level stock-analysis decisions. Required owner context is stock_watchlist, investment_horizon, and risk_profile; if any required value is missing, create one owner-owned resource-request work item per missing project global and do not dispatch analysis for that missing input. Use market_scope, report_language, analysis_timezone, analysis_frequency, and data_source_policy when present. For each requested analysis cycle, choose a run id and create the smallest downstream READY items needed to complete the run. Start with MARKET_DATA_COLLECTION for the watchlist or market review. After data artifacts exist and are accepted, create parallel TECHNICAL_ANALYSIS and INTELLIGENCE_RESEARCH items per symbol or small symbol batch. Create RISK_REVIEW after upstream data and at least one analysis artifact exists. Create DECISION_SYNTHESIS only after data, technical, intelligence, and risk artifacts are accepted or explicitly marked unavailable with reasons. Create REPORT_DELIVERY only after a decision artifact is accepted. Leave READY and NEEDS_REVISION items for the COORDINATOR unless the coordinator is disabled or stale. Preserve all project file paths in inputPacket.projectFiles and outputProjectFiles. Do not mark a goal complete until reports/<run-id>/dashboard.md or the owner-requested report path exists, has been reviewed, and points back to accepted source artifacts.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-lead",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/lead-agent"
+      ],
+      "polling": {
+        "enabled": true,
+        "strategy": "IDLE_ONLY",
+        "intervalMinutes": 720,
+        "message": "Run a stock-analysis lead polling frontier review: read runs/stock-analysis-lead.md if present, then runs/stock-analysis-ledger.jsonl, globals, active goals, linked work item summaries, assignment/runtime health, recent events, targeted shared files, and targeted memory; classify each stock-analysis goal/run topology; process only the highest-priority changed runs/goals that fit this tick; append ledger records after inspected goals; update runs/stock-analysis-lead.md before stopping."
+      }
+    },
+    {
+      "role": "PLANNER_AGENT",
+      "ref": "role://planner-agent",
+      "launchable": true,
+      "label": "Stock Analysis Planner",
+      "description": "Turns owner intent into run plans, per-symbol batches, dependencies, and clear output contracts for specialist roles.",
+      "initialPrompt": "You are the PLANNER_AGENT for stock analysis planning. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Read the assigned work item and owner context, then produce a bounded run plan. Normalize the watchlist into symbols, markets, names if available, and optional owner notes. Split work by run id and symbol batches small enough for reliable analysis. Create or recommend READY downstream items with explicit inputPacket.projectFiles, outputProjectFiles, acceptanceCriteria, and dependency notes. Do not invent market data or recommendations. If required data/search credentials are missing for the requested quality bar, create owner resource-request items with stable snake_case project global keys.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-planner",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/planner-agent"
+      ]
+    },
+    {
+      "role": "MARKET_DATA_AGENT",
+      "label": "Market Data Agent",
+      "launchable": true,
+      "description": "Collects and normalizes quotes, bars, fundamentals, market context, data freshness, and source reliability notes.",
+      "initialPrompt": "You are the MARKET_DATA_AGENT. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Start from your assigned work item and read any project files it references. Collect only data needed for the assigned run and symbols: latest quote, recent daily bars, major indices, volume, fundamentals when available, market phase, and source freshness. Use owner-provided project globals for paid providers only when present; if required keys are missing, report missing key names and request owner resources instead of guessing. Write normalized artifacts to the exact outputProjectFiles paths, usually data/<run-id>/<symbol>-market-data.md and data/<run-id>/market-overview.md. Include source names, observed timestamps, market timezone, failures, fallbacks, stale-data warnings, and skipped fields. Do not produce buy/sell conclusions.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
+      "capabilityBundles": [
+        {
+          "ref": "capability://stock-analysis/role/market-data-agent",
+          "purpose": "Market data collection and normalization.",
+          "surfaces": [
+            "skill://agent-workspace"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "PROJECT_FILE_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "TECHNICAL_ANALYST",
+      "label": "Technical Analyst",
+      "launchable": true,
+      "description": "Analyzes trend, momentum, volume, support/resistance, price position, and technical invalidation levels.",
+      "initialPrompt": "You are the TECHNICAL_ANALYST. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Read the assigned normalized data artifacts before analysis. Evaluate trend state, moving-average structure, price position, volume behavior, volatility, support/resistance, momentum, and invalidation levels. Keep calculations transparent and avoid overclaiming precision when bars or source data are incomplete. Write the exact requested artifact, usually analysis/<run-id>/<symbol>-technical.md, with a concise technical score or posture, evidence table, assumptions, and data-quality warnings. Do not produce the final investment decision; your output is one input to synthesis.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
+      "capabilityBundles": [
+        {
+          "ref": "capability://stock-analysis/role/technical-analyst",
+          "purpose": "Technical analysis from normalized market data.",
+          "surfaces": [
+            "skill://agent-workspace"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "PROJECT_FILE_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "INTELLIGENCE_AGENT",
+      "label": "Intelligence Agent",
+      "launchable": true,
+      "description": "Researches news, announcements, catalysts, sentiment, sector context, and information gaps.",
+      "initialPrompt": "You are the INTELLIGENCE_AGENT. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Research only the assigned run and symbols. Summarize recent news, announcements, sector context, catalysts, sentiment signals, and unresolved information gaps. Clearly separate confirmed facts from market commentary and speculation. Include source names, dates, links or durable source notes when available, freshness warnings, and conflicts between sources. Write the exact requested artifact, usually analysis/<run-id>/<symbol>-intelligence.md. Do not produce the final investment decision.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
+      "capabilityBundles": [
+        {
+          "ref": "capability://stock-analysis/role/intelligence-agent",
+          "purpose": "News, catalyst, sentiment, and context research.",
+          "surfaces": [
+            "skill://agent-workspace"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "PROJECT_FILE_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "RISK_ANALYST",
+      "label": "Risk Analyst",
+      "launchable": true,
+      "description": "Identifies downside scenarios, invalidation conditions, liquidity/data risks, and risk controls.",
+      "initialPrompt": "You are the RISK_ANALYST. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Read the assigned data, technical, and intelligence artifacts. Identify downside scenarios, event risks, valuation or liquidity risks, source/data-quality risks, invalidation points, and risk controls suitable for the owner's stated horizon and risk profile. Highlight what would change the conclusion and what remains unknown. Write the exact requested artifact, usually analysis/<run-id>/<symbol>-risk.md. Frame all controls as decision-support considerations, not instructions to trade.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
+      "capabilityBundles": [
+        {
+          "ref": "capability://stock-analysis/role/risk-analyst",
+          "purpose": "Risk review and downside scenario analysis.",
+          "surfaces": [
+            "skill://agent-workspace"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "PROJECT_FILE_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "DECISION_AGENT",
+      "label": "Decision Synthesizer",
+      "launchable": true,
+      "description": "Synthesizes upstream artifacts into informational decision-support reports and dashboards.",
+      "initialPrompt": "You are the DECISION_AGENT. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Read every upstream artifact named in inputPacket.projectFiles before synthesis. Produce an informational decision-support report, not financial advice. Synthesize data, technical, intelligence, and risk inputs into a clear posture, confidence level, key evidence, caveats, and action checklist. If upstream evidence is missing, stale, contradictory, or incomplete, make that visible and lower confidence rather than filling gaps. Write reports/<run-id>/<symbol>-decision.md or the exact requested report path, and update reports/<run-id>/dashboard.md when assigned. Include source artifact links, freshness summary, disclaimer, skipped/failed symbols, and review-ready acceptance evidence.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
+      "capabilityBundles": [
+        {
+          "ref": "capability://stock-analysis/role/decision-agent",
+          "purpose": "Decision-support synthesis from accepted upstream artifacts.",
+          "surfaces": [
+            "skill://agent-workspace"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "PROJECT_FILE_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE",
+            "REVIEW_SUBMIT"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "REPORT_AGENT",
+      "label": "Report Delivery Agent",
+      "launchable": true,
+      "description": "Prepares dashboards, notification-ready summaries, and final owner handoffs from accepted decision reports.",
+      "initialPrompt": "You are the REPORT_AGENT. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Read accepted decision reports and reviewer notes before delivery. Prepare owner-facing summaries under deliveries/<run-id>/, usually deliveries/<run-id>/notification.md, plus any requested dashboard consolidation. Keep the no-financial-advice disclaimer visible, preserve source artifact links, include generated time and timezone, and keep the summary concise enough for notification channels. Do not introduce new analysis claims that are not supported by accepted upstream artifacts.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
+      "capabilityBundles": [
+        {
+          "ref": "capability://stock-analysis/role/report-agent",
+          "purpose": "Owner-facing report and notification package delivery.",
+          "surfaces": [
+            "skill://agent-workspace"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "PROJECT_FILE_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE"
+          ]
+        }
+      ]
+    },
+    {
+      "role": "REVIEW_AGENT",
+      "ref": "role://review-agent",
+      "launchable": true,
+      "label": "Stock Analysis Reviewer",
+      "description": "Reviews data, analysis, risk, decision, and report artifacts for source freshness, consistency, disclosure, and output-contract completeness.",
+      "initialPrompt": "You are the REVIEW_AGENT for stock analysis artifacts. Load skill://agent-workspace and template-skill://stock-analysis/stock-analysis-workflow. Review assigned handoffs against acceptance criteria and the minimum final report contract. Check that promised project files exist, upstream files were read, source freshness is visible, stale or missing data is disclosed, conclusions match evidence, risk sections are not minimized, and the output does not present itself as financial advice or guarantee outcomes. Approve only when the artifact is complete enough for its downstream role or owner-facing use. Request changes with concrete missing paths, stale sources, unsupported claims, or disclosure gaps.",
+      "skillBundleRefs": [
+        "skill://agent-workspace",
+        "role-skill://agent-workspace-reviewer",
+        "template-skill://stock-analysis/stock-analysis-workflow"
+      ],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core",
+        "capability://agent-workspace/role/review-agent"
+      ]
+    }
+  ],
+  "projectGlobals": [
+    {
+      "key": "stock_watchlist",
+      "label": "Stock Watchlist",
+      "description": "Comma-separated symbols or project-file path containing the owner watchlist, such as 600519,hk00700,AAPL.",
+      "value": "",
+      "isSecret": false,
+      "required": true,
+      "createTaskOnMissing": true,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "market_scope",
+      "label": "Market Scope",
+      "description": "Markets to include, such as A,H,US,ETF.",
+      "value": "A,H,US",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "investment_horizon",
+      "label": "Investment Horizon",
+      "description": "Owner's analysis horizon, such as intraday, swing, medium-term, or long-term.",
+      "value": "",
+      "isSecret": false,
+      "required": true,
+      "createTaskOnMissing": true,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "risk_profile",
+      "label": "Risk Profile",
+      "description": "Owner's risk preference and constraints, used to frame risk review and decision-support language.",
+      "value": "",
+      "isSecret": false,
+      "required": true,
+      "createTaskOnMissing": true,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "analysis_frequency",
+      "label": "Analysis Frequency",
+      "description": "Requested cadence, such as manual, weekdays-close, weekly, or event-driven.",
+      "value": "manual",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "analysis_timezone",
+      "label": "Analysis Timezone",
+      "description": "Timezone used for run ids, freshness notes, and owner-facing reports.",
+      "value": "Asia/Shanghai",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "report_language",
+      "label": "Report Language",
+      "description": "Preferred report language, such as zh-CN or en-US.",
+      "value": "zh-CN",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "analysis_mode",
+      "label": "Analysis Mode",
+      "description": "Depth of analysis, such as quick, standard, full, or specialist.",
+      "value": "standard",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "data_source_policy",
+      "label": "Data Source Policy",
+      "description": "Data-source preference and limitations. Default prefers public or owner-provided sources and explicit missing-data disclosure.",
+      "value": "prefer_public_or_owner_provided_sources",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "stock-analysis"
+    },
+    {
+      "key": "max_active_items",
+      "label": "Max Active Items",
+      "description": "Maximum number of non-terminal work items allowed in this project. The API caps this value at 300.",
+      "value": "300",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "project-limits"
+    }
+  ]
+}
