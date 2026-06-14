@@ -123,6 +123,14 @@ project-file-upload() {
   project_file_env
   local local_path="${PROJECT_FILE_REMAINING_ARGS[0]:?local file path is required}"
   local remote_path="${PROJECT_FILE_REMAINING_ARGS[1]:-$(basename "$local_path")}"
+  if [ ! -f "$local_path" ] && [ -n "${PROJECT_FILE_REMAINING_ARGS[1]:-}" ] && [ -f "${PROJECT_FILE_REMAINING_ARGS[1]}" ]; then
+    remote_path="$local_path"
+    local_path="${PROJECT_FILE_REMAINING_ARGS[1]}"
+  fi
+  if [ ! -f "$local_path" ]; then
+    echo "local file path does not exist: $local_path" >&2
+    return 2
+  fi
   curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/files/upload" \
     -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
     "${PROJECT_FILE_CONTEXT_HEADER_ARGS[@]}" \
@@ -186,6 +194,7 @@ Commands:
   read, project-file-read <path> [text|base64]
   write, project-file-write <path> [local-source]
   upload, project-file-upload <local-path> [remote-path]
+  upload, project-file-upload <remote-path> <local-path>  # accepted when only the second path exists locally
   folder-create, project-folder-create <path>
   delete, project-file-delete <path> [recursive]
   download, project-file-download <path> [output-path]

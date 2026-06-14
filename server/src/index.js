@@ -556,7 +556,7 @@ const createProposalSchema = z.object({
 
 const createReviewSchema = z.object({
   assignmentId: z.string().trim().min(1),
-  artifactId: z.string().trim().optional(),
+  artifactId: z.string().trim().min(1).nullable().optional(),
   reviewerMemberId: z.string().trim().optional(),
   decision: z.enum(['PENDING', 'APPROVED', 'REQUEST_CHANGES', 'REJECTED']),
   summary: z.string().trim().optional(),
@@ -1788,6 +1788,16 @@ function memoryCandidatesFromArtifact(artifact, reviewDetails) {
 }
 
 app.setErrorHandler((error, _request, reply) => {
+  if (error instanceof z.ZodError) {
+    reply.status(400).send({
+      error: {
+        message: 'Invalid request body',
+        issues: error.issues,
+        statusCode: 400,
+      },
+    });
+    return;
+  }
   const statusCode = error.statusCode || (error instanceof TosServerError ? error.statusCode : undefined) || 500;
   reply.status(statusCode).send({
     error: {
