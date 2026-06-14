@@ -171,3 +171,81 @@ project-file-download-url() {
     -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
     "${PROJECT_FILE_CONTEXT_HEADER_ARGS[@]}"
 }
+
+project_file_usage() {
+  cat <<'EOF'
+Usage:
+  . project-files.sh
+  project-file-read [--work-item <id>] <path> [text|base64]
+
+  bash project-files.sh <command> [args]
+
+Commands:
+  list, project-file-list [prefix] [query] [recursive]
+  search, project-file-search [prefix] [query]
+  read, project-file-read <path> [text|base64]
+  write, project-file-write <path> [local-source]
+  upload, project-file-upload <local-path> [remote-path]
+  folder-create, project-folder-create <path>
+  delete, project-file-delete <path> [recursive]
+  download, project-file-download <path> [output-path]
+  download-url, project-file-download-url <path>
+
+Options:
+  --work-item, --work-item-id <id>  Bind the operation to a work item.
+EOF
+}
+
+project_file_main() {
+  local command="${1:-}"
+  case "$command" in
+    ""|-h|--help|help)
+      project_file_usage
+      ;;
+    list|project-file-list)
+      shift
+      project-file-list "$@"
+      ;;
+    search|project-file-search)
+      shift
+      project-file-search "$@"
+      ;;
+    read|project-file-read)
+      shift
+      project-file-read "$@"
+      ;;
+    write|project-file-write)
+      shift
+      project-file-write "$@"
+      ;;
+    upload|project-file-upload)
+      shift
+      project-file-upload "$@"
+      ;;
+    folder-create|project-folder-create|mkdir)
+      shift
+      project-folder-create "$@"
+      ;;
+    delete|project-file-delete|rm)
+      shift
+      project-file-delete "$@"
+      ;;
+    download|project-file-download)
+      shift
+      project-file-download "$@"
+      ;;
+    download-url|project-file-download-url)
+      shift
+      project-file-download-url "$@"
+      ;;
+    *)
+      echo "unknown project file command: $command" >&2
+      project_file_usage >&2
+      return 2
+      ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  project_file_main "$@"
+fi

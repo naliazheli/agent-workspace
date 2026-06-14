@@ -20,5 +20,11 @@
     "jsonwebtoken": "^9.0.2",
     "prisma": "^5.19.0",
     "zod": "^3.25.76"
+  },
+  "overrides": {
+    "axios": "^1.13.2",
+    "axios-adapter-uniapp": {
+      "axios": "^1.13.2"
+    }
   }
 }

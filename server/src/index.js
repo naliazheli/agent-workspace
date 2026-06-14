@@ -1054,10 +1054,33 @@ function normalizeProjectFilePath(input, { allowEmpty = false } = {}) {
     if (allowEmpty) return '';
     throw badRequest('File path is required');
   }
+  if (/[\x00-\x1F\x7F]/.test(raw)) {
+    throw badRequest('File path contains invalid characters');
+  }
+  if (raw.length > 1024) {
+    throw badRequest('File path is too long');
+  }
   const parts = [];
   for (const part of raw.split('/')) {
     if (!part || part === '.') continue;
-    if (part === '..') {
+    let decodedPart = part;
+    for (let index = 0; index < 2; index += 1) {
+      try {
+        const next = decodeURIComponent(decodedPart);
+        if (next === decodedPart) break;
+        decodedPart = next;
+      } catch {
+        break;
+      }
+    }
+    if (
+      part === '..' ||
+      decodedPart === '.' ||
+      decodedPart === '..' ||
+      decodedPart.includes('/') ||
+      decodedPart.includes('\\') ||
+      /[\x00-\x1F\x7F]/.test(decodedPart)
+    ) {
       throw badRequest('File path must stay inside project storage');
     }
     parts.push(part);

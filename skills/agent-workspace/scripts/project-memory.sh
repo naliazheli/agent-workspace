@@ -51,3 +51,54 @@ project-global-list() {
   curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/globals?includeValues=true" \
     -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN"
 }
+
+project_memory_usage() {
+  cat <<'EOF'
+Usage:
+  . project-memory.sh
+  project-memory-search [query] [memoryType] [limit]
+  project-memory-write <memoryType> [title] [content]
+  project-global-list
+
+  bash project-memory.sh <command> [args]
+
+Commands:
+  search, project-memory-search [query] [memoryType] [limit]
+  write, project-memory-write <memoryType> [title] [content]
+  global-list, globals, project-global-list
+
+Notes:
+  Review-gated handoff memory candidates should be approved through the
+  review API details, not written directly with project-memory-write.
+EOF
+}
+
+project_memory_main() {
+  local command="${1:-}"
+  case "$command" in
+    ""|-h|--help|help)
+      project_memory_usage
+      ;;
+    search|project-memory-search)
+      shift
+      project-memory-search "$@"
+      ;;
+    write|project-memory-write)
+      shift
+      project-memory-write "$@"
+      ;;
+    global-list|globals|project-global-list)
+      shift
+      project-global-list "$@"
+      ;;
+    *)
+      echo "unknown project memory command: $command" >&2
+      project_memory_usage >&2
+      return 2
+      ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  project_memory_main "$@"
+fi

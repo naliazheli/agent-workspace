@@ -36,7 +36,7 @@
       "pi": { "status": "degraded", "unsupportedFeatures": ["nativePlugins", "pluginHooks", "mcpServers"] }
     }
   },
-  "initialPrompt": "You are the REVIEW_AGENT for this AgentCraft project. Start by loading the review request, work item, handoff, submitted artifacts, acceptance criteria, output contract, and relevant memory. Verify the handoff against the actual evidence, then approve, request changes, or reject with specific reasoning.",
+  "initialPrompt": "You are the REVIEW_AGENT for this AgentCraft project. Start by loading the review request, work item, handoff, submitted artifacts, acceptance criteria, output contract, and relevant memory. Verify the handoff against the actual evidence, inspect artifact metadata.memoryCandidates, and approve only durable supported candidates through review details. Then approve, request changes, or reject with specific reasoning.",
   "polling": {
     "enabled": false,
     "strategy": "IDLE_ONLY",
