@@ -30,6 +30,41 @@ For projects created from the `hackerone-opportunity-research` template:
 
 When scoring structured scopes from the HackerOne REST API, normalize `asset_type` case before classification. Common values are uppercase, such as `URL`, `API`, `WILDCARD`, `SOURCE_CODE`, `APPLE_STORE_APP_ID`, `GOOGLE_PLAY_APP_ID`, `DOWNLOADABLE_EXECUTABLES`, and `OTHER`; treat eligible `URL`, `API`, and `WILDCARD` assets as the strongest fit for local agents, while mobile-only, executable-only, hardware, payment/KYC-heavy, or broad `OTHER` scopes need additional justification before selection.
 
+## Duplicate Radar
+
+Run a duplicate/prior-art pass before selecting a target for a goal and before decomposing that target into concrete scan directions or `SECURITY_TEST` work items. The point is to filter what agents will scan, not to discover duplicates only at report time. Report packaging should verify and, if materially stale, refresh the existing duplicate-radar artifact rather than doing the first duplicate search after a finding is already drafted. This reduces wasted reports but cannot prove uniqueness because HackerOne researchers can usually see only disclosed reports and limited duplicate metadata, not every private accepted report.
+
+- Search HackerOne Hacktivity/disclosed reports for the program name, handle, domain, asset identifier, endpoint, route, method/function/class name, CWE, weakness type, package name, SDK name, repository path, and distinctive security field names.
+- Search the target program page for Hacktivity, disclosed reports, activity, policy notes, common ineligible classes, known issues, signal/trial-report requirements, and disclosure settings.
+- Search public web sources with queries such as `site:hackerone.com/reports <program> <endpoint> <CWE>`, `site:hackerone.com/reports <asset> <method>`, `<program> bug bounty writeup`, `<asset> vulnerability`, and `<package> security fix`.
+- For source-code or SDK targets, search repository issues, pull requests, commits, release notes, changelogs, advisories, package releases, and docs for the same endpoint, method, root-cause phrase, fix keyword, and security-sensitive field.
+- Search local project files before creating new planning, scan, or validation work: `analysed/`, `opportunities/`, `programs/`, `coverage/`, `known-duplicates/`, `reports/`, and `submissions/`.
+- Record results in `known-duplicates/<handle>.md` or `coverage/<handle>/known-bug-reduction.md`. Include exact query strings, public URLs/report IDs found, whether each item is disclosed or only duplicate metadata, duplicate risk (`low`, `medium`, or `high`), and why the current candidate is materially different or likely duplicate.
+- Use the duplicate-radar result to shape work-item decomposition: avoid creating scan items for endpoints, bug classes, assets, repository paths, or vulnerability patterns already covered by public prior art unless the item names a material differentiator such as a new asset, version, regression, impact, or exploit path.
+- If a submitted report is marked duplicate, record the original report metadata HackerOne exposes: original report ID, title, state, submission date, severity, bounty/signal if visible, and triage explanation. It is acceptable to ask triage for high-level differentiation hints, but do not expect private report details.
+
+Use this compact project-file template when no target-specific duplicate note exists:
+
+```markdown
+# Known Duplicates And Public Prior Art
+
+## Candidate: <short title>
+
+- Date checked: YYYY-MM-DD
+- Program: <handle/name>
+- Asset: <scope asset>
+- Keywords searched: <endpoints, methods, classes, CWE, package names>
+- H1/public reports checked:
+  - <url or report id> - <why relevant / why different>
+- Repository/advisory/release searches:
+  - <url or query> - <why relevant / why different>
+- Local notes checked:
+  - <file/path> - <result>
+- Duplicate risk: low | medium | high
+- Differentiator:
+  <new asset, version, root cause, impact, exploit path, or regression evidence>
+```
+
 ## Required Context
 
 Read the assignment packet before acting. A complete HackerOne task project should provide:
@@ -134,6 +169,7 @@ Use project shared files for durable state:
 - `analysed/`: durable project/program URL exclusion records. `analysed/project-addresses.jsonl` is the canonical append-only list of evaluated HackerOne project URLs used to avoid re-analyzing the same program on later discovery passes.
 - `programs/<handle>.md` or `.json`: program policy, scope, assets, exclusions, reward notes, and report template.
 - `coverage/<handle>/`: tested areas, skipped areas, duplicate/prior-art reductions, and false-positive lessons.
+- `known-duplicates/<handle>.md`: duplicate radar records, public prior-art links, disclosed HackerOne report IDs, duplicate metadata from closed reports, and differentiators for current candidates.
 - `evidence/<handle>/`: sanitized evidence only.
 - `reports/<handle>/`: draft reports and review notes.
 - `submissions/`: submitted report ids, titles, duplicate references, and closure lessons.
@@ -165,6 +201,6 @@ Submit or recommend submission only when all are true:
 - The behavior is in scope and not explicitly excluded.
 - A triager can reproduce it from the report.
 - A real security boundary or meaningful impact is shown.
-- Duplicate/prior-art checks do not already cover the same asset, version, root cause, and impact.
+- A duplicate-radar artifact created during target selection or scan-direction planning does not already cover the same asset, version, root cause, and impact.
 - No customer data, destructive action, DoS, spam, social engineering, KYC/payment abuse, or real-money movement was required.
 - The owner has approved report submission after reviewing the final draft.

@@ -113,9 +113,17 @@ owner work items only when the assigned phase needs them. Discovery agents must
 first read `analysed/` and skip project/program URLs already
 recorded there; every evaluated candidate appends a record to
 `analysed/project-addresses.jsonl` so later passes do not restart from the same
-programs. Goal-level target credentials should be requested through owner
-resource work items so future runtimes receive them as `PROJECT_GLOBAL_*`
-environment variables.
+programs. Before a target is selected or split into concrete scan directions,
+agents must run a duplicate/prior-art pass across HackerOne disclosed reports,
+program activity, public web results, repository issues/PRs/commits/releases,
+and local project files. The result is recorded under `known-duplicates/` or
+the relevant `coverage/` path with query strings, public report IDs/URLs,
+duplicate risk, and the material differentiator, then used to filter which
+`SECURITY_TEST` items get created. Report packaging verifies this existing
+artifact instead of treating duplicate search as a last-minute submission step.
+Goal-level target credentials should be requested through owner resource work
+items so future runtimes receive them as `PROJECT_GLOBAL_*` environment
+variables.
 
 ## Stock analysis template
 
