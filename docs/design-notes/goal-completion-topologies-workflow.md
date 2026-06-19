@@ -192,8 +192,8 @@ Read enough, but not everything:
 
 1. Start from `runtime.resume`, inbox, active assignments, `boardSnapshot`, and the event cursor.
 2. Read `coordination/lead.md` if present, then `coordination/lead-goal-ledger.jsonl`.
-3. Page active goals with `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100`.
-4. For each active goal under consideration, read linked work item summaries with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&includeClosed=true&limit=100&page=1`.
+3. Page active goals with `GET /v1/projects/{projectId}/goals?statuses=IN_PROGRESS,BLOCKED&includeClosed=false&limit=100`.
+4. For each active goal under consideration, read linked lead-attention work item summaries with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&statuses=READY,NEEDS_REVISION,IN_REVIEW,ASSIGNED,IN_PROGRESS,REPORT_READY,REJECTED&limit=100&page=1`; read `statuses=ACCEPTED` only when sufficiency, dependency, or aggregation checks require it.
 5. Read assignment/runtime health with the host runtime-state helper so stale or failed assignments are visible before creating duplicates.
 6. Read exact work-item detail only for items that may change the decision: pending review, NEEDS_REVISION, owner resource/action, failed/stale assignment, dependency input, aggregation candidate, or candidate goal completion.
 7. Read project shared files only for paths named by accepted upstream outputs, output contracts, handoffs, or the candidate final/aggregation artifact.

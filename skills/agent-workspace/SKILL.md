@@ -27,7 +27,7 @@ Use this as the common entry skill for every `agent-workspace` runtime. It defin
    - Read inbox items first, then active assignments, task packets, linked threads/messages, and role-visible summaries.
    - If the resume response includes `boardSnapshot`, treat its goals, features, and work items as the current attention slice.
    - If `boardSnapshot` is missing or appears incomplete for the role, call `GET /v1/projects/{projectId}/board` before saying that no goals or work exist.
-   - For lead/PM goal-frontier review, use paginated `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100` and `GET /v1/projects/{projectId}/work-items?includeClosed=true&limit=100` instead of relying only on the board slice.
+   - For lead/PM goal-frontier review, use paginated and status-filtered `GET /v1/projects/{projectId}/goals?statuses=IN_PROGRESS,BLOCKED&includeClosed=false&limit=100` only when managing all active goals, polling, or when the board slice is incomplete. Then read work items goal-by-goal with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&statuses=READY,NEEDS_REVISION,IN_REVIEW,ASSIGNED,IN_PROGRESS,REPORT_READY,REJECTED&limit=100&page=1`; add `statuses=ACCEPTED` only for closure or aggregation checks.
    - For lead/PM polling over many goals, maintain a human-readable lead workspace such as `coordination/lead.md` and a durable goal ledger such as `coordination/lead-goal-ledger.jsonl` in project shared storage. Read both at the start of the polling run, append one ledger record after each inspected goal, and update `lead.md` before stopping with the cursor, next goal queue, skipped reasons, and unresolved blockers.
    - Advance cursors from the returned `lastSeq` or equivalent resume cursor.
 5. Heartbeat while working.
@@ -60,8 +60,8 @@ Load context in this order:
 4. Linked memory: packet-provided `memoryRefs` first, then only additional memory found by targeted search when the packet is missing required historical context.
 5. Event stream: project-wide events only for roles that have project-wide read permission.
 
-Do not load the full project by default. A worker should use `taskPacket.get`; a reviewer should load the handoff, criteria, and relevant memory; a PM or lead may load broader events and metrics.
-Treat `boardSnapshot` as an attention slice, not an exhaustive archive. Closed goals and work items may appear only in `statusCounts`; request `mode=planning` or `includeClosed=true` only when history is explicitly needed. When a lead must manage every active goal or compare item coverage against goal closure criteria, paginate `/goals` and `/work-items` and reconcile by `goalId`.
+Do not load the full project by default. A worker should use `taskPacket.get`; a reviewer should load the handoff, criteria, and relevant memory; a PM or lead should start from resume/board slices and load broader events, metrics, files, memory, globals, or exact item details only when they can change the current coordination decision.
+Treat `boardSnapshot` as an attention slice, not an exhaustive archive. Closed goals and work items may appear only in `statusCounts`; request `mode=planning` or `includeClosed=true` only when history is explicitly needed. When a lead must manage every active goal or compare item coverage against goal closure criteria, paginate `/goals` with active statuses, then read `/work-items?goalId=<goalId>` with attention statuses for inspected goals instead of loading one all-items page.
 Do not infer that the project has no goals from an empty inbox or empty assignments. Use `boardSnapshot.goalSummaries`, `boardSnapshot.backlogGoalSummaries`, and `boardSnapshot.statusCounts.goals` from resume, or fetch the board directly, before reporting goal state.
 
 ### Lead Workspace
@@ -109,8 +109,8 @@ At the start of a polling run:
 
 1. Read `coordination/lead.md` if it exists.
 2. Read the existing ledger if it exists.
-3. Page through active goals with `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100`.
-4. For each goal under consideration, read only that goal's work items with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&includeClosed=true&limit=100&page=1`.
+3. Page through active goals with `GET /v1/projects/{projectId}/goals?statuses=IN_PROGRESS,BLOCKED&includeClosed=false&limit=100`.
+4. For each goal under consideration, read only that goal's lead-attention work items with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&statuses=READY,NEEDS_REVISION,IN_REVIEW,ASSIGNED,IN_PROGRESS,REPORT_READY,REJECTED&limit=100&page=1`; read `statuses=ACCEPTED` only when checking sufficiency, dependencies, or aggregation.
 5. Compute a compact `statusDigest` from goal id/status/updatedAt, linked work item ids/statuses/workTypes, and open assignment statuses.
 
 After inspecting a goal, append a JSONL record with:
@@ -136,9 +136,9 @@ Lead polling is a project-wide control loop, not a worker task. When a lead rece
 Read enough context to decide, but avoid broad project-wide detail scans. Read, in order:
 
 1. `runtime.resume`, inbox, active assignments, `boardSnapshot`, and the event cursor.
-2. Project globals with `GET /v1/projects/{projectId}/globals?includeValues=true`.
-3. Active goals with `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100`.
-4. For each active goal under consideration, linked work item summaries with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&includeClosed=true&limit=100&page=1`.
+2. Project globals with `GET /v1/projects/{projectId}/globals` for configured/presence metadata. Use `includeValues=true` only when the role is authorized and the actual value is required for the current decision; never print or copy secret values.
+3. Active goals with `GET /v1/projects/{projectId}/goals?statuses=IN_PROGRESS,BLOCKED&includeClosed=false&limit=100` when polling, managing all goals, or when the board slice is incomplete.
+4. For each active goal under consideration, linked lead-attention work item summaries with `GET /v1/projects/{projectId}/work-items?goalId=<goalId>&statuses=READY,NEEDS_REVISION,IN_REVIEW,ASSIGNED,IN_PROGRESS,REPORT_READY,REJECTED&limit=100&page=1`; read accepted summaries separately only when they can change closure or aggregation decisions.
 5. Exact work-item detail only when it can change the lead decision: pending review, NEEDS_REVISION, owner resource/action, failed or stale assignment, dependency input, aggregation candidate, or candidate goal completion.
 6. Recent events with `GET /v1/projects/{projectId}/events` and members/runtime summaries with `GET /v1/projects/{projectId}/members`.
 7. Assignment/runtime health with `GET $AIFACTORY_API_BASE_URL/projects/{projectId}/assignments/runtime-state?limit=100` using `AIFACTORY_RUNTIME_TOKEN` when available.
@@ -211,7 +211,7 @@ Common runtime endpoints:
 - `POST {base}/v1/runtimes/{runtimeId}/resume`
 - `POST {base}/v1/runtimes/{runtimeId}/heartbeat`
 - `GET {base}/v1/projects/{projectId}/board`
-- `GET {base}/v1/projects/{projectId}/goals`
+- `GET {base}/v1/projects/{projectId}/goals` (`status=<id>` or `statuses=A,B`, `page`, `limit`, `includeClosed`)
 - `GET {base}/v1/projects/{projectId}/goals/{goalId}`
 - `GET {base}/v1/projects/{projectId}/files`
 - `GET {base}/v1/projects/{projectId}/files/read?path=...`
@@ -219,13 +219,13 @@ Common runtime endpoints:
 - `POST {base}/v1/projects/{projectId}/files/write`
 - `POST {base}/v1/projects/{projectId}/files/upload`
 - `POST {base}/v1/projects/{projectId}/files/folders`
-- `GET {base}/v1/projects/{projectId}/globals?includeValues=true` (requires `PROJECT_GLOBAL_READ`)
+- `GET {base}/v1/projects/{projectId}/globals` (requires `PROJECT_GLOBAL_READ`; add `includeValues=true` only when the authorized runtime truly needs values)
 - `PUT {base}/v1/projects/{projectId}/globals` (requires `PROJECT_GLOBAL_WRITE`; include `workItemId` and `source` when a work item is the reason for the write so the project event graph can retain that context)
 - `GET {base}/v1/projects/{projectId}/memories?q=...&memoryType=...` (requires `MEMORY_READ`)
 - `POST {base}/v1/projects/{projectId}/memories` (requires `MEMORY_WRITE`)
 - `POST {base}/v1/projects/{projectId}/features`
 - `POST {base}/v1/projects/{projectId}/work-items`
-- `GET {base}/v1/projects/{projectId}/work-items`
+- `GET {base}/v1/projects/{projectId}/work-items` (`goalId`, `featureId`, `ownerId`, `status=<id>` or `statuses=A,B`, `page`, `limit`, `includeClosed`)
 - `GET {base}/v1/projects/{projectId}/work-items/{workItemId}`
 - `PATCH {base}/v1/projects/{projectId}/work-items/{workItemId}`
 - `POST {base}/v1/projects/{projectId}/assignments` (requires `ASSIGNMENT_DISPATCH`; lead runtimes may use this to dispatch scoped work to an existing member/runtime)

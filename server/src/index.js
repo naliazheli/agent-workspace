@@ -119,6 +119,11 @@ function nonClosedGoalWhere(includeClosed) {
   return includeClosed ? {} : { status: { notIn: CLOSED_GOAL_STATUSES } };
 }
 
+function queryStatusFilter(query) {
+  const singleStatus = typeof query.status === 'string' ? query.status.trim() : '';
+  return [...new Set([singleStatus, ...(query.statuses || [])].filter(Boolean))];
+}
+
 function resourceRequestIdentityFromPacket(inputPacket, fallbackGoalId = null) {
   if (!inputPacket || typeof inputPacket !== 'object' || Array.isArray(inputPacket)) return null;
   const request = inputPacket.resourceRequest;
@@ -436,8 +441,18 @@ const projectFolderCreateSchema = z.object({
   workItemId: z.string().trim().optional(),
 });
 
+const statusListQuerySchema = z.preprocess((value) => {
+  if (value === undefined || value === null || value === '') return [];
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .flatMap((entry) => String(entry).split(','))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}, z.array(z.string()).default([])).transform((items) => [...new Set(items)]);
+
 const workItemListQuerySchema = z.object({
   status: z.string().trim().optional(),
+  statuses: statusListQuerySchema,
   goalId: z.string().trim().optional(),
   featureId: z.string().trim().optional(),
   ownerId: z.string().trim().optional(),
@@ -448,6 +463,7 @@ const workItemListQuerySchema = z.object({
 
 const goalListQuerySchema = z.object({
   status: z.string().trim().optional(),
+  statuses: statusListQuerySchema,
   includeClosed: booleanQuerySchema.default(false),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -2558,10 +2574,10 @@ app.get('/v1/projects/:projectId/goals', async (request) => {
   await getProjectOrThrow(projectId);
 
   const query = goalListQuerySchema.parse(request.query ?? {});
+  const statuses = queryStatusFilter(query);
   const where = {
     projectId,
-    ...(query.status ? { status: query.status } : {}),
-    ...(!query.status ? nonClosedGoalWhere(query.includeClosed) : {}),
+    ...(statuses.length ? { status: { in: statuses } } : nonClosedGoalWhere(query.includeClosed)),
   };
   const [goals, total] = await Promise.all([
     prisma.projectGoal.findMany({
@@ -2969,10 +2985,10 @@ app.get('/v1/projects/:projectId/work-items', async (request) => {
   await getProjectOrThrow(projectId);
 
   const query = workItemListQuerySchema.parse(request.query ?? {});
+  const statuses = queryStatusFilter(query);
   const where = {
     projectId,
-    ...(query.status ? { status: query.status } : {}),
-    ...(!query.status ? nonClosedWorkItemWhere(query.includeClosed) : {}),
+    ...(statuses.length ? { status: { in: statuses } } : nonClosedWorkItemWhere(query.includeClosed)),
     ...(query.goalId ? { goalId: query.goalId } : {}),
     ...(query.featureId ? { featureId: query.featureId } : {}),
     ...(query.ownerId ? { ownerId: query.ownerId } : {}),

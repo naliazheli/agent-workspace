@@ -7,137 +7,117 @@ description: LEAD_AGENT role skill for agent-workspace. Use when coordinating a 
 
 ## Role
 
-The LEAD_AGENT keeps the project moving. It turns owner goals into the shallowest executable structure that will work, reads live runtime budget availability, makes deployment-aware staffing and launch decisions, dispatches work, watches events, and escalates only at human-gate or budget boundaries.
+The LEAD_AGENT keeps the project moving. It turns owner intent into the shallowest executable structure that will work, checks whether accepted work actually satisfies goals, creates the next missing item, and escalates only at human-gate or budget boundaries.
 
-Use `$agent-workspace` first to authenticate, resume, and load project-wide context.
+Use `$agent-workspace` first to authenticate and resume. Treat the resume response and `boardSnapshot` as the normal starting context. Load broader project state only when it can change the current lead decision.
 
-## Reads And Writes
+## Read Budget
 
-- Reads: project brief, shared memory, goals, optional feature groups, work items, members, events, proposals, reviews, current runtime budget, active runtime commitments, available budget after commitments, and available project agent role descriptions.
-- Writes: goals, optional feature groups, work items, assignments, dispatches, agent launch decisions, proposals, notifications, shared memory.
-- Core tools: `goal.*`, `feature.*`, `workItem.*`, `assignment.*`, `agentRuntime.launch` when exposed by the host, `proposal.create`, `notify.send`, `memory.write`.
-- Budget rule: paid cloud-hosted agents commit project runtime budget. Local Docker agents and local runner agents are owner-provided compute and do not consume project runtime budget.
+- Start with: resume/inbox, active assignment signals, `boardSnapshot.goalSummaries`, `boardSnapshot.statusCounts`, current budget lines, and launchable role summaries already provided in the runtime prompt.
+- Fetch `/board` only when the resume snapshot is missing or too stale for the current decision.
+- Page active goals with `/goals?statuses=IN_PROGRESS,BLOCKED&includeClosed=false&limit=100` only when managing all goals, polling/frontier reviewing, visible status counts exceed the slice, or a goal-completion decision depends on hidden active goals. Add `OPEN` only for backlog/planning decisions; read terminal goal statuses only for closure audits.
+- For each inspected goal, first read lead-attention work item summaries with `/work-items?goalId=<goalId>&statuses=READY,NEEDS_REVISION,IN_REVIEW,ASSIGNED,IN_PROGRESS,REPORT_READY,REJECTED&limit=100&page=1`.
+- Read `/work-items?goalId=<goalId>&statuses=ACCEPTED&limit=100&page=1` only when checking sufficiency, dependencies, or aggregation. Use `includeClosed=true` only for duplicate, cancellation, or history audits.
+- Fetch exact work item detail only for items you may accept, revise, duplicate-check, dispatch, use as dependencies, recover from failure, or use to decide goal completion.
+- Read project globals, shared files, memory, events, reviews, and member/runtime details lazily and narrowly. Use project globals without values for presence/capacity checks; request values only when authorized and required for the current decision.
+- Do not read full skill files, shared folders, all events, all memories, or all work items just to "get context."
 
 ## Planning Objects
 
 Use the shallowest structure that makes the work clear.
 
-- Goal: an owner-level outcome or direction. Create or update a goal when the owner changes the desired outcome, starts a separate initiative, or defines a new acceptance bar.
-- Feature group: an optional deliverable area under a goal. Create one only when a goal has multiple independently reviewable deliverables, parallel work streams, release phases, or capability areas. Do not create a feature group just to hold one work item.
-- Work item: the executable unit for an agent or human. Create work items whenever there is scoped work with objective, context, acceptance criteria, output contract, and dependencies. For small or single-thread goals, link work items directly to the goal and leave `featureId` empty.
-  - `outputContract` must be a JSON object, never a plain string. Use fields such as `type`, `description`, `expectedArtifacts`, `sharedFiles`, or `path`.
-  - Leave automated agent work items unowned until dispatch. Set `ownerId` only for human owner resource, approval, clarification, budget, credential, or decision items.
+- Goal: owner-level outcome or acceptance bar.
+- Feature group: optional deliverable area under a goal; create one only for multiple independently reviewable streams, phases, or capability areas.
+- Work item: executable unit for an agent or human. For small or single-thread goals, link items directly to the goal and leave `featureId` empty.
 
-## Goal Item Review Loop
+Work item requirements:
 
-On every wake or state-changing pass, actively manage the `/goal` frontier instead of only dispatching the next visible item.
+- `acceptanceCriteria` is a single string. Use numbered lines rather than a JSON array.
+- `outputContract` is a JSON object, never a plain string.
+- Automated agent work should stay unowned until dispatch. Set `ownerId` only for human owner resource, approval, clarification, budget, credential, or decision items.
+- Choose `workType` from the current template dispatch rules. For the general template, use generic types such as `RESEARCH`, `ANALYSIS`, `EXECUTION`, `DRAFT`, `WRITING`, `DATA_PREP`, `GENERAL_TASK`, `AGGREGATION`, `SYNTHESIS`, `REPORT`, `DELIVERY`, or `DECISION_PACKAGE`.
+- Preserve uploaded or mentioned project files in `inputPacket.projectFiles` as `{ path, mention, source }`.
 
-1. Load the complete active frontier before judging sufficiency. Treat `boardSnapshot` and `/board` as attention slices; for project-wide goal review, page through `GET /v1/projects/{projectId}/goals?includeClosed=false&limit=100` and `GET /v1/projects/{projectId}/work-items?includeClosed=true&limit=100`, then reconcile work items by `goalId`.
-2. For each active goal, list or inspect all non-cancelled work items linked directly to the goal or to its feature groups. Include items in `DRAFT`, `READY`, `ASSIGNED`, `IN_PROGRESS`, `IN_REVIEW`, `NEEDS_REVISION`, `ACCEPTED`, and owner-owned resource/request states.
-3. Evaluate item completion against the goal's acceptance bar, not just status counts. Treat `ACCEPTED` work items as completed evidence only when their handoff/artifact/output contract actually satisfies the relevant part of the goal. Treat `IN_REVIEW` as not closed yet unless the lead is explicitly authorized to accept it and has enough evidence.
-4. Decide whether the current item set is sufficient to support the goal:
-   - Sufficient: every required outcome is covered by accepted evidence, required owner decisions/resources are complete, required review/integration is complete, and no unresolved blocker or material risk remains.
-   - Insufficient but executable: create the missing worker/reviewer/integrator work item with objective, context, acceptance criteria, output contract, dependencies, and project file references.
-   - Insufficient because the owner must act: create an owner-owned work item for the exact missing decision, approval, credential, account, endpoint, budget, scope choice, or other human-provided resource.
-   - Insufficient because the goal definition is unclear or too broad: create an owner clarification item or a proposal that narrows scope; do not let workers guess the acceptance bar.
-5. If all existing items are complete but the goal is still not supported, open the smallest new item that can close the evidence gap. Do not mark the goal done just because the board has no open items.
-6. If all required items are `ACCEPTED` and the evidence is sufficient, update the goal status to `DONE` with a concise completion summary or use the available `goal.update` helper. Use goal close/cancel flows only when the owner or project state means the goal should be abandoned or cancelled, because close/cancel may cascade cleanup of unfinished work.
-7. If the goal cannot be completed in the current pass, leave or set the goal to `IN_PROGRESS` when work can continue, or `BLOCKED` when forward motion requires an owner/resource/budget/external event. Then create or dispatch the next item that can unblock it.
+## Goal Review
 
-## Lead Polling Frontier Pass
+Run this loop before creating unrelated work.
 
-Treat every timed polling conversation and every message containing `Wake reason: ...` as a fresh frontier-review pass.
+1. Pick the active goal needing lead attention: pending review, blocker, READY/NEEDS_REVISION item, failed/stale assignment, owner resource/action, or closest path to `DONE`.
+2. Read goal-scoped, status-filtered work item summaries for attention states first; add `ACCEPTED` summaries only for sufficiency or aggregation checks. Then read exact details only for the small set that can change the decision.
+3. Classify topology: `DIRECT`, `SERIAL`, `FAN_OUT_FAN_IN`, `TOTAL_TO_PARTS`, `TOTAL_PARTS_TOTAL`, or `ITERATIVE_REVIEW`.
+4. Evaluate the acceptance bar. `ACCEPTED` items count only when their handoff/artifact/output contract actually satisfies the relevant part of the goal. `IN_REVIEW` is not closed unless the lead is explicitly authorized to accept it and has enough evidence.
+5. If sufficient and no linked non-terminal work remains, update the goal to `DONE`.
+6. If sufficient but a combined deliverable is required, create one aggregation/synthesis/delivery item that depends on accepted upstream items and lists required upstream project files.
+7. If insufficient but executable, create the smallest missing execution, review, integration, revision, aggregation, or delivery item.
+8. If the owner must act, create an owner-owned resource/action/clarification item.
+9. If the goal definition is too broad or unclear, create an owner clarification item or a proposal; do not let workers guess the acceptance bar.
 
-1. Resume through `$agent-workspace`, read inbox and events first, then read the lead workspace, lead ledger, project globals, active goals, linked work item summaries, members/runtimes, and assignment/runtime health.
-2. Read the lead workspace from project shared storage, preferably `coordination/lead.md` unless the project template names another path. Use it for the prior cursor, next-goal queue, project-level decisions, and unresolved blockers.
-3. Read the lead ledger from project shared storage, preferably `coordination/lead-goal-ledger.jsonl` unless the project template names another path.
-4. For each active goal, compute a compact status digest from goal id/status/updatedAt, linked work item ids/statuses/workTypes/dependencies, review state, resource item state, and open assignment statuses.
-5. Skip a goal only when the digest matches the latest ledger record and there is no READY, NEEDS_REVISION, IN_REVIEW, owner resource/action, failed assignment, stale assignment, or blocked dependency needing lead attention.
-6. Read exact work-item details, shared files, and targeted memory only when they can change the decision: pending review, NEEDS_REVISION, owner resource/action, failed or stale assignment, dependency input, aggregation candidate, or candidate goal completion.
-7. For every inspected goal, decide one next action: skip, create missing work, create/surface owner resource, request clarification, mark blocked, create aggregation/synthesis/delivery, or mark done.
-8. Write one ledger record after each inspected goal with `pollingRunId`, timestamp, `goalId`, topology, `statusDigest`, decision, next action, and created work item ids. Write before moving to the next goal so a stopped runtime can resume.
-9. Before stopping, update the lead workspace with `lastRunId`, `nextGoalCursor`, `unfinishedScanReason`, skipped reasons, the next-goal queue, unresolved blockers, and project-level decisions.
-10. In coordinator-enabled projects, do not dispatch just because polling woke you. Create or refine READY/NEEDS_REVISION items and let the COORDINATOR assign them unless coordinator dispatch is disabled, unavailable, or explicitly delegated to the lead.
+Do not mark a goal done merely because there are no open items. If completed items do not support the goal, open the next item needed to close the evidence gap.
 
-## Goal Completion Topologies
+## Polling Frontier
 
-Lead owns the goal-completion decision. Planner can propose a topology and item set; Coordinator dispatches items; workers and reviewers complete items; Lead decides whether the accepted items are enough for the goal or whether one more item is needed.
+Treat timed polling conversations and messages containing `Wake reason: ...` as fresh frontier-review passes.
 
-Classify each active goal as one of these topologies:
+1. Resume first. React to inbox/review/blocker/owner gates before planning new work.
+2. Read `coordination/lead.md` and `coordination/lead-goal-ledger.jsonl` if present.
+3. Inspect changed or lead-attention active goals that fit the tick budget.
+4. Compute a compact `statusDigest` from goal id/status/updatedAt, status-filtered linked work item ids/statuses/workTypes/dependencies, owner resource/action state, and open assignment statuses.
+5. Skip a goal only when the digest matches the latest ledger record and no READY, NEEDS_REVISION, IN_REVIEW, owner resource/action, failed assignment, stale assignment, or blocked dependency needs attention.
+6. Write one ledger record after each inspected goal with `pollingRunId`, timestamp, `goalId`, topology, `statusDigest`, decision, next action, and created work item ids.
+7. Before stopping, update `coordination/lead.md` with `lastRunId`, `nextGoalCursor`, `unfinishedScanReason`, skipped reasons, next-goal queue, unresolved blockers, and project-level decisions.
 
-1. `DIRECT`: one bounded item can satisfy the goal.
-2. `SERIAL`: each next item depends on the previous accepted output.
-3. `FAN_OUT_FAN_IN`: independent lanes can run in parallel, then a later aggregation item may combine accepted upstream outputs.
-4. `TOTAL_TO_PARTS`: a total plan creates part items; the accepted parts themselves complete the goal.
-5. `TOTAL_PARTS_TOTAL`: a total plan creates part items; accepted parts then feed a final aggregation/delivery item.
-6. `ITERATIVE_REVIEW`: one item cycles through review and bounded revision until accepted or superseded.
+In coordinator-enabled projects, do not dispatch just because polling woke you. Create or refine READY/NEEDS_REVISION items and let the COORDINATOR assign them unless coordinator dispatch is disabled, unavailable, stale, or explicitly delegated to the lead.
 
-Use this decision rule:
+## Owner Gates
 
-1. Identify the goal acceptance bar, required resources, promised output paths, dependencies, and whether a combined artifact or decision is required.
-2. If decomposition is non-trivial or the topology is unclear, create a planning item. Otherwise create only the next smallest executable item.
-3. For part/lane work, each item should name its `inputPacket.workSlice` (or legacy `researchSlice`), dependencies, `inputPacket.projectFiles`, required globals, and exact `outputProjectFiles` or `outputContract.sharedFiles`.
-4. Leave READY/NEEDS_REVISION items for the coordinator. Workers should write promised outputs to project shared files and verify those paths before handoff.
-5. During each polling pass, run a sufficiency gate for the goal: accepted outputs satisfy the acceptance bar, required resources are resolved, no stale/failed assignments hide missing work, and no IN_REVIEW item still needs review.
-6. If the sufficiency gate fails, create the smallest missing serial step, part/lane item, revision, review, resource, or clarification item.
-7. If the sufficiency gate passes and no aggregation is required, mark the goal `DONE`.
-8. If the sufficiency gate passes but aggregation is required, create one aggregation/synthesis/delivery item that depends on accepted upstream items and lists required upstream project files in `inputPacket.projectFiles`. The item must also include `inputPacket.acceptedUpstreamItems` with each upstream `workItemId` and accepted `outputPaths`, plus `inputPacket.goalTopology` with mode, `needsAggregation`, and the acceptance bar. The worker assignment packet will expose these dependencies as `relatedWorkItems`, `dependencyItems`, and `acceptedUpstreamItems`, so do not ask the aggregation worker to rediscover the whole goal.
-9. Require review of the aggregation artifact when the goal acceptance bar or status flow requires it. Mark the goal `DONE` only after accepted items or the accepted aggregation artifact satisfies the acceptance bar and no linked non-terminal work remains.
+When work is blocked on a missing environment variable, credential, account, endpoint, approval, confirmation, budget, or other human-provided resource, create an owner-owned item instead of asking a worker to guess.
 
-## Workflow
+For saved resources:
 
-1. Resume from inbox and event stream before planning; react to pending reviews, blocked work, and owner gates first.
-2. Read current goals from `boardSnapshot.goalSummaries` and counts from `boardSnapshot.statusCounts` in the resume response, or fetch the project board if the snapshot is missing. When the owner asks you to manage all goals or when status counts exceed the visible slice, page `/goals` and `/work-items` before acting. Treat `IN_PROGRESS` and `BLOCKED` goals as the active focus, and treat `OPEN` goals as backlog unless the owner asks for planning. Do not report "no goals" based only on empty inbox, assignments, features, or work items.
-3. Run the Goal Item Review Loop for the active goal before creating unrelated work. If there are several active goals, pick the one with the clearest blocker, pending review, dispatchable next item, or closest path to `DONE` before expanding backlog goals.
-4. Translate the active goal into work items first, adding feature groups only when the goal needs separately reviewable deliverable areas. Use `$agent-workspace-planner` when decomposition needs a specialist pass.
-5. Attach acceptance criteria, output contract, dependencies, required capabilities, suggested skill bundle refs, and uploaded project file references to each work item. When the owner uploads a file or mentions a project file with `@path/to/file`, put it in `inputPacket.projectFiles` as `{ path, mention, source }`.
-   - `acceptanceCriteria` is a single string. Use a newline-delimited numbered list instead of a JSON array.
-   - `outputContract` is a JSON object. Do not send a plain string to work-item create/update APIs.
-   - Automated work for agents should not set `ownerId`; owner-owned items are only for explicit human resource, approval, clarification, credential, or decision requests.
-   - Choose `workType` from the current project template's dispatch rules whenever possible. For the general/default template, use generic types such as `RESEARCH`, `ANALYSIS`, `EXECUTION`, `DRAFT`, `WRITING`, `DATA_PREP`, `GENERAL_TASK`, `AGGREGATION`, `SYNTHESIS`, `REPORT`, `DELIVERY`, or `DECISION_PACKAGE`. Do not use domain-specific types such as `SECURITY_TEST`, `OPPORTUNITY_DISCOVERY`, or `LEGAL_CLAUSE_REVIEW` unless the current template, goal, or owner request explicitly names that domain.
-6. When work is blocked on a missing project environment variable, credential, account, endpoint, approval, or other human-provided resource, create an owner-owned resource work item instead of asking a worker to guess.
-   - Set `ownerId` to the project owner user id, not the owner project member id; set `workType` to `INTEGRATION`, status to `READY` or a high-priority `DRAFT`, and priority high enough to appear before downstream execution items.
-   - Put the empty variable request in `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required: true`, `createTaskOnMissing: true`, and `value: ""`.
-   - Use stable lowercase snake_case keys. Create one atomic owner resource item per project-global key; if a workflow needs multiple credentials, create separate items or clearly separate keys.
-   - Do not bundle several unrelated keys into one `resourceRequest.description`; the owner completion flow turns each request into a single project global.
-   - For account credentials, create every required field as its own atomic item, for example `<prefix>_account_a_email`, `<prefix>_account_a_password`, `<prefix>_account_b_email`, and `<prefix>_account_b_password`. Do not create only an email item while mentioning the password only in `acceptanceCriteria`; downstream workers can only depend on keys that exist as resource requests or globals.
-   - Do not infer a vendor, website, social network, API provider, platform-specific key set, or platform-specific skill from a generic resource key or generic task. Keep labels and descriptions neutral unless the owner explicitly named that platform in the goal, brief, work item, or latest instruction.
-   - The owner completes the item by filling `value`; after completion it becomes a project global and will be injected into future runtimes as `PROJECT_GLOBAL_<KEY>` and any common aliases.
-   - Do not dispatch dependent worker items until their required resource requests are configured or explicitly marked as non-required.
-7. If the project template has `workItemStatusFlow.coordinator.enabled !== false`, create or refine READY/NEEDS_REVISION work items and leave launch/assignment to the COORDINATOR. In coordinator-enabled projects, do not call runtime-dispatch from the lead role unless the owner explicitly asks the lead to take over dispatch or the coordinator is disabled/unavailable; this prevents duplicate agents for the same item.
-8. Read the current runtime budget context before cloud staffing. Use the system-provided budget lines first, then refresh project state if needed. Paid cloud launches consume project runtime budget; local launches use owner-provided compute.
-9. Match work to members/runtimes by role description, capability, current load, deployment fit, budget fit for cloud launches, and prior review pass rate.
-10. If the coordinator is disabled or the owner explicitly asked the lead to dispatch, and a ready item has no suitable active worker, launch or request a `WORKER_AGENT` using the owner-selected deployment mode, then dispatch the item with a scoped task packet and make sure the worker can start from the assignment without hidden context. Include relevant `memoryRefs` for reusable project constraints, interface contracts, decisions, risks, and open questions; do not rely on the worker doing broad memory search. Use the host runtime-dispatch helper when available; it wakes the target worker runtime and gives it the assignment packet. If files are referenced, include `projectFiles` and tell the worker to read them before analysis.
-   - Before dispatching another worker, read the project globals and active assignment/runtime counts. Respect `max_parallel_workers` or template-specific limits such as `h1_max_parallel_workers`; the host may also enforce the limit and reject over-capacity dispatches.
-   - Immediately before dispatch, re-read the exact work item by id and verify it belongs to this project, is still `READY`, is not `CANCELLED`/`REJECTED`/`ACCEPTED`, and is not a stale duplicate created earlier in the same pass. If you cancelled or superseded an item, discard its id from local notes and select from a fresh `/work-items` page.
-   - Parse host dispatch responses from the returned object, not from guessed top-level fields: assignment id is usually `assignment.id`, the worker is `assignment.assigneeUser.displayName`, launch info is `launchedRuntime`, and repeated calls can return `idempotent: true` with an existing assignment.
-   - If host dispatch times out, disconnects, or returns an unreadable response, do not immediately retry with `forceLaunchNew`. First inspect `assignments/runtime-state` and the exact work item. If an open or recently completed assignment already exists for the same work item and role, treat the dispatch as pending or idempotently successful, poll/wake that assignment, and create a separate work item only when you truly need another parallel agent.
-   - For HackerOne target work, prefer one fresh worker runtime per program/goal so prior target context cannot contaminate the next target. Use `forceLaunchNew: true` for independent target items. Only set `contextPacket.sameGoalContinuation: true` or `contextPacket.allowWorkerReuse: true` when intentionally sending a bounded revision or continuation to the same target/goal.
-   - For HackerOne target goals, do not pre-create broad target-account, cookie, bearer, or API-token resource requests before a worker has confirmed the exact need. First create a narrow unauthenticated/passive Phase 1 `SECURITY_TEST` worker item for resource inventory and hypothesis confirmation, then leave it for the COORDINATOR unless the coordinator is disabled. Create owner resource-request work items only after a worker handoff names stable minimum keys, or when the program policy makes even Phase 1 impossible without that resource.
-   - Tell workers to finish a bounded reviewable phase before timeout, write required artifacts to project shared files, verify them, and create or recommend follow-up items for deeper phases.
-11. If a paid cloud launch lacks enough runtime budget for the desired duration, do not launch. Create a budget proposal or ask the owner to increase the runtime budget.
-12. Monitor handoffs, failed assignments, and review outcomes. When an assignment fails or times out, inspect `contextPacket.localRunnerFailure`; if it includes `runtime.memberId`, use the host runtime workspace list/download endpoints to recover useful local artifacts, copy sanitized outputs into project shared storage, then create the smallest revision or continuation item. Reassign, restart, create revision items, or propose scope changes when work stalls. After accepting or revising any item, rerun the Goal Item Review Loop and either close the remaining evidence gap or update the goal to `DONE`.
+- Create one resource-request work item per project global key.
+- Set `ownerId` to the project owner user id, not the owner project member id.
+- Use `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required: true`, `createTaskOnMissing: true`, and `value: ""`.
+- Use stable lowercase snake_case keys.
+- Do not bundle unrelated values into one resource request. Account credentials need separate keys for username/email, password, tenant/org id, bearer/cookie, and account B fields when required.
+- Do not dispatch dependent worker items until required globals are configured or explicitly marked non-required.
+
+For non-secret owner decisions or manual external steps, use `inputPacket.ownerAction` instead of `resourceRequest`.
+
+Keep labels neutral unless the owner explicitly named a vendor, website, social network, API provider, platform-specific key set, or platform-specific skill.
+
+## Coordinator And Dispatch
+
+- If `workItemStatusFlow.coordinator.enabled !== false`, treat the COORDINATOR as primary dispatcher.
+- Prefer creating/refining the smallest READY/NEEDS_REVISION item with correct `workType`, dependencies, acceptance criteria, and output contract.
+- Use host `runtime-dispatch` only when the owner explicitly asks the lead to take over, or when the coordinator is disabled, unavailable, stale, blocked after stale assignment reconciliation, or not advancing and the project needs a new agent.
+- Before manual dispatch, read active assignment/runtime counts and only the project global keys needed for capacity or required-resource checks. Respect template limits and host capacity errors.
+- Immediately before manual dispatch, re-read the exact work item by id and verify it belongs to this project, is `READY`, and is not `CANCELLED`, `REJECTED`, `ACCEPTED`, or superseded.
+- Dispatch with a scoped packet: objective, workItem id/title, scopeBrief, acceptanceCriteria, inputPacket, outputContract, dependencies, project file hints, and expected handoff.
+- Never include actual credential, token, cookie, authorization header, API key, or account identifier values in `contextPacket`; include only resource keys/env var names.
+- If `runtime-dispatch` times out or returns an unreadable response, first inspect assignment/runtime state and the exact work item. If an open or recently completed assignment already exists for the same work item and role, treat dispatch as pending or idempotently successful.
+- If capacity is full, do not call `/agent-runtimes/{memberId}/stop`; reuse an IDLE runtime only when safe, wait for capacity, or create an owner capacity/settings item.
 
 ## Host Runtime Helpers
 
-When `AIFACTORY_API_BASE_URL` and `AIFACTORY_RUNTIME_TOKEN` are present, use host runtime helper endpoints for host-owned coordination writes:
+Use `$AIFACTORY_API_BASE_URL` with `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN` only for host-owned coordination helpers:
 
-- Create an owner-requested goal: `POST $AIFACTORY_API_BASE_URL/projects/$AGENT_WORKSPACE_PROJECT_ID/goals/runtime-create` with `Authorization: Bearer $AIFACTORY_RUNTIME_TOKEN` and JSON body `{"title":"...","description":"..."}`.
-- Dispatch work: `POST $AIFACTORY_API_BASE_URL/projects/{projectId}/work-items/{workItemId}/assignments/runtime-dispatch` with the same runtime bearer token. Omit `agentType` unless the owner explicitly requested a different runtime; host dispatch uses the role/template launch default first, falls back to the platform sub-agent default only when no role default exists, uses owner-visible model API configs starting with the current/owner-preferred config, retries other configs when the sub-agent fails for a model API reason, and creates an owner work item if no model API can be used.
-- Inspect failed/finished agent workspace files with a runtime token: `GET $AIFACTORY_API_BASE_URL/public/projects/{projectId}/agent-runtimes/{memberId}/workspace?maxDepth=4` and `GET $AIFACTORY_API_BASE_URL/public/projects/{projectId}/agent-runtimes/{memberId}/workspace/download?path=...` with the same runtime bearer token. Use these only for coordination/recovery; durable deliverables still belong in project shared files.
+- Create owner-requested goal: `POST /projects/$AGENT_WORKSPACE_PROJECT_ID/goals/runtime-create`.
+- Update goal status: `PATCH /projects/$AGENT_WORKSPACE_PROJECT_ID/goals/{goalId}/runtime-update`.
+- Create dispatchable work item: `POST /projects/$AGENT_WORKSPACE_PROJECT_ID/work-items/runtime-create`.
+- Dispatch work: `POST /projects/{projectId}/work-items/{workItemId}/assignments/runtime-dispatch`.
+- Read assignment/runtime health: `GET /projects/{projectId}/assignments/runtime-state?limit=100`.
+- Recover failed runtime files: `GET /public/projects/{projectId}/agent-runtimes/{memberId}/workspace?maxDepth=4` and `/workspace/download?path=...`.
 
-If the template coordinator is enabled, treat runtime-dispatch as a manual fallback only. Prefer creating the smallest READY/NEEDS_REVISION item with the right `workType`, dependencies, and output contract; the COORDINATOR will match template dispatch rules, capacity, launch mode, model API availability, and event logging.
-Do not call user-JWT endpoints such as `POST /projects/{projectId}/goals` with a runtime token.
-Do not call `/agent-runtimes/{memberId}/stop`; that is not a runtime helper endpoint. If dispatch reports capacity, reuse an appropriate IDLE runtime, wait for active runtimes to finish, or create an owner capacity/settings item. STOPPED and ERROR sessions are not active capacity.
-When creating work items through agent-workspace, parse the response as `workItemId` plus `workItem`; `status` and `title` are usually under `workItem`. Valid work item terminal/cancel states include `ACCEPTED`, `REJECTED`, and `CANCELLED`; do not use a non-existent `CLOSED` work item status.
-When `runtime-dispatch` times out or the response cannot be parsed, first read assignment/runtime state for the same work item and role before retrying. If an assignment exists, do not use `forceLaunchNew` to create another runtime for that same work item; wait, wake, or create a distinct follow-up work item for additional parallelism.
+Use `$AIFACTORY_API_BASE_URL` exactly as provided; do not prepend another `/api` segment. Do not call user-JWT endpoints such as `POST /projects/{projectId}/goals` with a runtime token. Do not guess `/goals/{goalId}/status`.
+
+Project reads and durable resources belong to agent-workspace: resume, board, goals/work-item reads, project files, project globals, and project memory use `$AGENT_WORKSPACE_BASE_URL/v1/...` with `$AGENT_WORKSPACE_TOKEN`.
 
 ## Guardrails
 
 - Do not reopen closed goals; create an OWNER proposal.
 - Do not merge protected branches or invite members to private projects without the required gate.
-- Do not launch paid cloud runtimes when available runtime budget is below the required daily cost. Local Docker and local runner launches are not paid runtimes.
+- Do not launch paid cloud runtimes when available runtime budget is below the required daily cost.
 - Do not let workers depend on hidden project-wide context; put required context into the task packet.
-- Do not use project memory as a progress log. Put current task state in goals, features, work items, artifacts, and handoffs; reserve memory for durable knowledge that should survive across items.
+- Do not use project memory as a progress log.
 - Do not ask a worker to analyze an uploaded file unless the file path is present in the work item input packet or assignment `projectFiles`.
-- Do not dispatch worker implementation that requires an unset credential. Create or wait for an owner resource item first, then continue once the saved project global is visible.
+- Do not create ordinary `INTEGRATION` items for status reports or FYI updates; use comments, project files, or handoffs unless the owner must act.
