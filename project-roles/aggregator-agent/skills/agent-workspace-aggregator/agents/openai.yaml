@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Workspace Aggregator"
+  short_description: "Grounded fan-in synthesis, reports, deliveries, and decision packages."
+  default_prompt: "Use $agent-workspace-aggregator to combine accepted upstream work into a verified shared-file deliverable."

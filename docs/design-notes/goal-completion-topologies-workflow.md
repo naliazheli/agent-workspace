@@ -57,31 +57,39 @@ flowchart TD
   summaryRead["Bounded summary reads\ngoals, linked item summaries, assignments, events"]
   attentionGate{"Digest unchanged and no lead attention item?"}
   detailRead["Targeted detail reads\nonly attention items, candidate DONE, deps, reviews, files"]
-  topologyGate{"Which completion topology fits?"}
+  topologyGate{"Which completion topology fits?\nDIRECT / SERIAL / FAN_OUT_FAN_IN\nTOTAL_TO_PARTS / TOTAL_PARTS_TOTAL / ITERATIVE_REVIEW"}
   resourceGate{"Required resources and owner decisions present?"}
   resourceItem["Owner-owned resource/action item\ninputPacket.resourceRequest or ownerAction"]
-  directReady{"Accepted output already satisfies goal?"}
-  serialNext["Create next serial work item\nsmallest executable step"]
+  currentEnough{"Accepted upstream outputs\nalready satisfy goal?"}
+  aggregationNeeded{"Goal requires combined deliverable?"}
   plannerNeed{"Need decomposition plan?"}
-  plannerItem["Planning work item\ntopology, lanes, deps, output contracts"]
-  planner["Planner proposes item topology\nparts, deps, aggregation contract"]
-  leadPlan["Lead validates item set sufficiency\nbefore expanding work"]
-  createParts["Create READY part/collection items\nbounded slices or phases"]
-  coordinator["Coordinator dispatches READY items\nrole rules, capacity, runtime fit"]
-  workers["Workers execute bounded items\none slice, phase, or revision"]
+  plannerItem["Planning work item\nworkType PLANNING\nno execution side effects"]
+  dependencyGate{"Dependency gate\nall dependsOn items completed/accepted?"}
+  dependencyBlocked["Hold item\nlog DEPENDENCIES_UNMET\nno assignment or claim"]
+  coordinator["Coordinator dispatches eligible items\nstatus/workType rules, role caps, runtime fit"]
+  roleRoute{"Role route\nfrom template dispatchRules"}
+  planner["Planner proposes topology\nlanes, dependsOn, output contracts,\naggregation contract"]
+  topologyProposal["Topology proposal artifact\nplan plus candidate item set"]
+  leadPlan["Lead validates topology\ncreates only missing items"]
+  createWork["Create direct/serial work item\nREADY or NEEDS_REVISION\nsmallest executable unit"]
+  createParts["Create parallel part items\nREADY with output contracts"]
+  aggregationItem["Aggregation/synthesis/delivery item\nworkType AGGREGATION/SYNTHESIS/REPORT/DELIVERY/DECISION_PACKAGE\ndependsOn accepted upstream items"]
+  workers["Worker executes bounded item\none slice, step, or revision"]
+  aggregator["Aggregator Agent executes\nreads accepted upstream files/items\npreserves links and caveats"]
   files["Shared project files\ninputs, evidence, outputs, deliverables"]
-  handoff["Worker handoff\nfiles, verification, blockers, memoryCandidates"]
-  review["Reviewer checks artifact vs contract"]
-  accepted{"Item accepted?"}
+  aggregateOutput["Combined deliverable\nreport, release package, recommendation,\nor decision memo"]
+  handoff["Handoff/artifact\nfile paths, verification, blockers,\nmemoryCandidates"]
+  reviewQueue["Assignment complete -> IN_REVIEW\nreview-routed by template"]
+  reviewer["Review Agent checks artifact\nagainst outputContract and acceptanceCriteria"]
+  structuredReview{"Structured review exists?\nPOST /reviews with assignmentId"}
+  completionBlocked["Reject runtime completion\nuntil structured review decision exists"]
+  reviewDecision{"Review decision\nAPPROVED / CHANGES_REQUESTED / REJECTED"}
+  acceptedItem["Item status ACCEPTED\nvia reviewApprovedStatus"]
   revise["NEEDS_REVISION item or bounded follow-up"]
+  rejected["REJECTED/CANCELLED\nor superseded by Lead"]
   fanIn{"Fan-in gate\naccepted parts enough?"}
-  aggregationNeeded{"Goal needs aggregation deliverable?"}
-  aggregationItem["Aggregation/synthesis/delivery item\nDepends on accepted upstream outputs"]
-  aggregator["Aggregator role\nreads accepted upstream files/items"]
-  aggregateOutput["Combined artifact or decision\nsummary, package, release, recommendation"]
-  aggregateReview["Aggregation review\ncoverage, support, caveats, acceptance bar"]
-  aggregateAccepted{"Aggregation accepted?"}
   done["Lead marks Goal DONE\ncompletion summary links support artifacts"]
+  ownerView["Owner sees outputs\nProject shared files and item artifacts\nreports/ or deliverables/ paths"]
   missing["Lead creates missing item\nwork, review, resource, clarification"]
   memory["Shared Memory\nreviewed durable facts, decisions, constraints, risks"]
 
@@ -95,26 +103,35 @@ flowchart TD
   attentionGate -- no --> detailRead --> topologyGate
   topologyGate --> resourceGate
   resourceGate -- no --> resourceItem --> pollTimer
-  resourceGate -- yes --> directReady
-  directReady -- yes --> done
-  directReady -- no --> plannerNeed
-  plannerNeed -- yes --> plannerItem --> coordinator --> planner --> leadPlan
+  resourceGate -- yes --> currentEnough
+  currentEnough -- yes --> aggregationNeeded
+  currentEnough -- no --> plannerNeed
+  plannerNeed -- yes --> plannerItem --> dependencyGate
   plannerNeed -- no --> leadPlan
-  leadPlan -- "DIRECT gap" --> serialNext --> coordinator
-  leadPlan -- "SERIAL next step" --> serialNext
-  leadPlan -- "PARTS needed" --> createParts --> coordinator
-  coordinator --> workers --> files --> handoff --> review --> accepted
+  dependencyGate -- no --> dependencyBlocked --> projectEvent
+  dependencyGate -- yes --> coordinator --> roleRoute
+  roleRoute -- "PLANNING" --> planner --> topologyProposal --> files --> handoff
+  roleRoute -- "RESEARCH / ANALYSIS / EXECUTION / DRAFT / GENERAL_TASK" --> workers --> files --> handoff
+  roleRoute -- "AGGREGATION / SYNTHESIS / REPORT / DELIVERY / DECISION_PACKAGE" --> aggregator --> aggregateOutput --> files --> handoff
+  handoff --> reviewQueue --> reviewer --> structuredReview
+  structuredReview -- no --> completionBlocked --> reviewer
+  structuredReview -- yes --> reviewDecision
   handoff -. reusable candidates .-> memory
-  review -. approved candidates .-> memory
-  accepted -- no --> revise --> coordinator
-  accepted -- yes --> projectEvent
-  accepted -- yes --> fanIn
+  reviewDecision -. approved candidates .-> memory
+  reviewDecision -- CHANGES_REQUESTED --> revise --> dependencyGate
+  reviewDecision -- REJECTED --> rejected --> projectEvent
+  reviewDecision -- APPROVED --> acceptedItem --> projectEvent
+  acceptedItem -- "planning accepted" --> leadPlan
+  acceptedItem -- "part/work accepted" --> fanIn
+  acceptedItem -- "aggregation accepted" --> done
+  leadPlan -- "DIRECT gap or SERIAL next step" --> createWork --> dependencyGate
+  leadPlan -- "PARTS needed" --> createParts --> dependencyGate
+  leadPlan -- "accepted upstream needs synthesis" --> aggregationItem --> dependencyGate
   fanIn -- "missing part/review/resource" --> missing --> pollTimer
   fanIn -- enough --> aggregationNeeded
   aggregationNeeded -- no --> done
-  aggregationNeeded -- yes --> aggregationItem --> coordinator --> aggregator --> aggregateOutput --> aggregateReview --> aggregateAccepted
-  aggregateAccepted -- no --> revise
-  aggregateAccepted -- yes --> done
+  aggregationNeeded -- yes --> aggregationItem
+  done --> ownerView
 ```
 
 ## Object Relationship Map
@@ -123,12 +140,17 @@ flowchart TD
 flowchart LR
   project["Project"]
   goal["Goal\nowner outcome"]
-  topology["Goal completion topology\nDIRECT, SERIAL, FAN_OUT_FAN_IN, TOTAL_PARTS_TOTAL"]
+  topology["Goal completion topology\nDIRECT, SERIAL, FAN_OUT_FAN_IN,\nTOTAL_TO_PARTS, TOTAL_PARTS_TOTAL, ITERATIVE_REVIEW"]
   feature["Feature group\noptional lanes, parts, or phases"]
   workItem["WorkItem\nexecutable unit"]
-  dependency["Dependency\nserial edge or aggregation input"]
+  inputPacket["inputPacket\ngoalTopology, workSlice,\nprojectFiles, requiredGlobals"]
+  outputContract["outputContract\nexpected artifacts and acceptance evidence"]
+  dependency["dependsOn[] Dependency\nserial edge or aggregation input"]
+  dependencyGate["Dependency gate\nblocks dispatch and direct claim until completed/accepted"]
   assignment["Assignment\nruntime-bound execution"]
   role["Role\nlead, planner, worker, reviewer, aggregator"]
+  statusFlow["Work item status flow\nREADY, IN_REVIEW, ACCEPTED,\nNEEDS_REVISION, terminal states"]
+  dispatchRule["Template dispatchRules\nstatus/workType -> role"]
   coordinator["Coordinator\nrule and capacity based dispatcher"]
   pollingConfig["Lead polling config\nstrategy, interval, message"]
   pollingState["Lead polling state\nlastRunAt, nextRunAt, lastConversationId"]
@@ -139,15 +161,27 @@ flowchart LR
   file["Project shared file\ninputs, evidence, outputs, deliverables"]
   memory["Memory\nreviewed durable knowledge"]
   artifact["Artifact or handoff"]
-  review["Review"]
+  review["Structured Review\n/reviews decision"]
+  reviewGate["Review completion gate\nreview-routed assignments must post review first"]
 
   project --> goal
+  project --> statusFlow
+  statusFlow --> dispatchRule
+  dispatchRule --> role
+  dispatchRule --> coordinator
   goal --> topology
   goal --> feature
   goal --> workItem
   feature --> workItem
+  workItem --> inputPacket
+  inputPacket --> topology
+  inputPacket --> file
+  workItem --> outputContract
+  outputContract --> file
   workItem --> dependency
   dependency --> workItem
+  dependency --> dependencyGate
+  dependencyGate --> coordinator
   workItem --> assignment
   assignment --> role
   coordinator --> assignment
@@ -167,6 +201,8 @@ flowchart LR
   workItem --> file
   assignment --> artifact
   artifact --> review
+  review --> reviewGate
+  reviewGate --> statusFlow
   review --> workItem
   review --> memory
   file --> artifact

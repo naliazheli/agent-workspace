@@ -45,6 +45,12 @@
       "deploymentDays": 1
     },
     {
+      "role": "AGGREGATOR_AGENT",
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "deploymentDays": 1
+    },
+    {
       "role": "INTEGRATOR_AGENT",
       "launchMode": "local-docker",
       "agentType": "pi",
@@ -145,11 +151,19 @@
       },
       {
         "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["AGGREGATION", "SYNTHESIS", "REPORT", "INTEGRATION", "DELIVERY", "DECISION_PACKAGE"],
+        "workTypes": ["AGGREGATION", "SYNTHESIS", "REPORT", "DELIVERY", "DECISION_PACKAGE"],
+        "role": "AGGREGATOR_AGENT",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Aggregate accepted upstream items, preserve source links and caveats, and prepare the requested grounded report, delivery, or decision package."
+      },
+      {
+        "statuses": ["READY", "NEEDS_REVISION"],
+        "workTypes": ["INTEGRATION"],
         "role": "INTEGRATOR_AGENT",
         "maxAgents": 2,
         "forceLaunchNew": false,
-        "objective": "Aggregate accepted upstream items, synthesize findings, or prepare the requested delivery, report, external handoff, or decision package."
+        "objective": "Connect accepted project work to allowed external systems, releases, CI, GitHub, or protected handoff workflows."
       },
       {
         "statuses": ["READY", "NEEDS_REVISION"],
@@ -187,6 +201,7 @@
         "REVIEW_AGENT": 3,
         "SECURITY_AUDITOR": 2,
         "PM_AGENT": 1,
+        "AGGREGATOR_AGENT": 2,
         "INTEGRATOR_AGENT": 2
       }
     }
@@ -241,6 +256,12 @@
       "ref": "role://pm-agent",
       "launchable": true,
       "description": "Watches stalls, risks, load, and coordination health."
+    },
+    {
+      "role": "AGGREGATOR_AGENT",
+      "ref": "role://aggregator-agent",
+      "launchable": true,
+      "description": "Synthesizes accepted upstream work into grounded reports, deliveries, and decision packages."
     },
     {
       "role": "INTEGRATOR_AGENT",

@@ -30,6 +30,8 @@ Use the shallowest structure that makes the work clear.
 - Feature group: optional deliverable area under a goal; create one only for multiple independently reviewable streams, phases, or capability areas.
 - Work item: executable unit for an agent or human. For small or single-thread goals, link items directly to the goal and leave `featureId` empty.
 
+Use `FAN_OUT_FAN_IN` when the goal explicitly asks for broad discovery, exhaustive brainstorming, many categories, many sources, independent evidence streams, or SOP stages that can be worked in parallel and later reconciled. In that case, create 2-5 parallel part items with exact output paths and one `AGGREGATION`/`SYNTHESIS`/`REPORT` item that depends on accepted upstream items. Keep direct single-item plans for narrow deliverables where one worker can satisfy the acceptance bar without losing reviewability.
+
 Work item requirements:
 
 - `acceptanceCriteria` is a single string. Use numbered lines rather than a JSON array.
@@ -53,6 +55,7 @@ Run this loop before creating unrelated work.
 9. If the goal definition is too broad or unclear, create an owner clarification item or a proposal; do not let workers guess the acceptance bar.
 
 Do not mark a goal done merely because there are no open items. If completed items do not support the goal, open the next item needed to close the evidence gap.
+Do not create project work items for a worker's internal todo list. Use project items for cross-role, cross-permission, durable-artifact, review, owner-gate, dependency, or SOP-stage boundaries.
 
 ## Polling Frontier
 
