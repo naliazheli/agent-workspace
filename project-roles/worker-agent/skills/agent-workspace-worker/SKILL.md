@@ -48,6 +48,8 @@ When a work item includes `inputPacket.goalTopology`, `inputPacket.workSlice`, l
 8. End with a handoff that names the slice/step, files produced, files read, verification performed, blockers, and whether the item is ready for review or needs a follow-up item.
 9. Propose `memoryCandidates` only for reusable decisions, constraints, facts, risks, or open questions. Do not turn routine progress or temporary findings into memory.
 
+For opportunity-discovery work involving free rewards, bounties, sweepstakes, rebates, low-value manual web tasks, or agent-doable "found money" workflows, make the output operational. Each opportunity card must include: source URL, exact action the user or agent would take, eligibility and geography, required account/credential/resource, reward range and payout form, expected time/cost, repeatability, automation fit, legal/ToS/anti-abuse risk, CAPTCHA/KYC/payment/manual-review flags, first safe no-side-effect validation step, evidence freshness, and a recommended next work item. Prefer a Markdown table plus short notes in the required shared file. Do not perform real entries, registrations, submissions, purchases, payments, KYC, CAPTCHA solving, vulnerability reports, or other third-party side effects unless the work item explicitly authorizes them and required owner resources are present.
+
 ## Idle Work Discovery
 
 Only self-select a work item when there is no actionable inbox item, active assignment, task packet, or scoped user instruction.
@@ -134,7 +136,40 @@ print(urllib.request.urlopen(req).read().decode())
 PY
 ```
 
-Use `{"status":"ACTIVE"}` when beginning and `{"status":"COMPLETED"}` after artifacts and handoff are submitted. `COMPLETED` on the assignment moves the work item to `IN_REVIEW`; do not set the work item to `ACCEPTED` yourself.
+Use `{"status":"ACTIVE"}` when beginning and `{"status":"COMPLETED"}` after artifacts and handoff are submitted. Before `COMPLETED`, submit a durable handoff artifact through the host runtime helper when available:
+
+```bash
+. /opt/data/AGENT_WORKSPACE_RUNTIME.env
+python3 - <<'PY'
+import json, os, urllib.request
+
+base = os.environ["AIFACTORY_API_BASE_URL"]
+token = os.environ["AIFACTORY_RUNTIME_TOKEN"]
+project_id = os.environ["AGENT_WORKSPACE_PROJECT_ID"]
+work_item_id = "<workItemId>"
+assignment_id = "<assignmentId>"
+verified_paths = ["deliverables/example.md"]
+body = json.dumps({
+    "artifactType": "HANDOFF",
+    "assignmentId": assignment_id,
+    "title": "Worker handoff",
+    "content": "HANDOFF\nWork item: ...\nChanges/artifacts: ...\nVerification: ...\nResidual risks: ...",
+    "metadata": {
+        "projectFiles": [{"path": path, "source": "worker-handoff"} for path in verified_paths],
+        "resources": [{"path": path, "source": "worker-handoff"} for path in verified_paths],
+    },
+}).encode()
+req = urllib.request.Request(
+    f"{base}/projects/{project_id}/work-items/{work_item_id}/runtime-artifacts",
+    data=body,
+    method="POST",
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+)
+print(urllib.request.urlopen(req).read().decode())
+PY
+```
+
+If `runtime-artifacts` is unavailable, use `runtime-comments` as a fallback and say that the artifact endpoint was unavailable. `COMPLETED` on the assignment moves the work item to `IN_REVIEW`; do not set the work item to `ACCEPTED` yourself.
 
 ## Project File References
 
@@ -231,7 +266,7 @@ PY
   - if push fails, inspect the HTTP error and GitHub response before retrying with a different auth shape
 - When asked to make a local commit, do the edit, set repo-local git user config if needed, create the commit, and reply with the branch and commit SHA.
 - If a required worker API is not exposed yet, say so briefly and continue with the concrete repo work that is already possible.
-- If no artifact API is available, include the handoff in the final response and preserve any generated files in the project or repo workspace.
+- If no artifact API is available, include the handoff in `runtime-comments`, mention that the artifact endpoint was unavailable, and preserve any generated files in project shared storage or the repo workspace as requested.
 
 ## Guardrails
 

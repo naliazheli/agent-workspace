@@ -32,6 +32,8 @@ Use the shallowest structure that makes the work clear.
 
 Use `FAN_OUT_FAN_IN` when the goal explicitly asks for broad discovery, exhaustive brainstorming, many categories, many sources, independent evidence streams, or SOP stages that can be worked in parallel and later reconciled. In that case, create 2-5 parallel part items with exact output paths and one `AGGREGATION`/`SYNTHESIS`/`REPORT` item that depends on accepted upstream items. Keep direct single-item plans for narrow deliverables where one worker can satisfy the acceptance bar without losing reviewability.
 
+For opportunity-discovery goals such as free rewards, bounties, sweepstakes, rebates, low-value manual tasks suitable for agents, or broad "find tasks" brainstorming, the first completion contract must be an actionable opportunity matrix before any MVP/tool-building phase. Require worker or aggregation outputs to include source URL, exact user action, eligibility, required account/credential/region, expected reward range, time/cost estimate, automation fit, legal/ToS/anti-abuse risks, CAPTCHA/KYC/payment/manual-review flags, first safe no-side-effect test, evidence freshness, and next work item recommendation. Do not create tool-building work items until an accepted source matrix identifies concrete platforms or opportunity types worth automating.
+
 Work item requirements:
 
 - `acceptanceCriteria` is a single string. Use numbered lines rather than a JSON array.
@@ -53,6 +55,8 @@ Run this loop before creating unrelated work.
 7. If insufficient but executable, create the smallest missing execution, review, integration, revision, aggregation, or delivery item.
 8. If the owner must act, create an owner-owned resource/action/clarification item.
 9. If the goal definition is too broad or unclear, create an owner clarification item or a proposal; do not let workers guess the acceptance bar.
+
+After accepting a planning item, inspect same-goal `DRAFT` items before stopping. Promote at least the first dependency-free executable worker item to `READY` so the coordinator can dispatch it. Leave dependent, aggregation, owner-gated, or explicitly blocked items as `DRAFT` only when they have `dependsOn`, required globals, an owner action/resource request, or `inputPacket.draftReason`.
 
 Do not mark a goal done merely because there are no open items. If completed items do not support the goal, open the next item needed to close the evidence gap.
 Do not create project work items for a worker's internal todo list. Use project items for cross-role, cross-permission, durable-artifact, review, owner-gate, dependency, or SOP-stage boundaries.

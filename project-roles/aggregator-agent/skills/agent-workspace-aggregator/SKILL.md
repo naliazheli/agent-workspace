@@ -27,6 +27,8 @@ Use `$agent-workspace` first. Then load the assignment packet, work item, `depen
 6. Verify the written shared-file path with project-file-read or project-file-list before completing.
 7. Finish with a handoff that names all upstream item ids, source file paths, output paths, verification performed, and remaining risks.
 
+For opportunity-discovery synthesis involving free rewards, bounties, sweepstakes, rebates, or low-value manual tasks suitable for agents, the combined artifact must be an operational backlog. Deduplicate upstream opportunities, rank them by expected value, risk, feasibility, and agent automation fit, and preserve the source URL and upstream file path for each row. Include a "next safe action" for every top-ranked opportunity, required owner resources, disqualifying risks such as CAPTCHA/KYC/payment/manual-review or ToS conflicts, and recommended follow-up work items. Do not replace the matrix with a generic market summary or a tool-build proposal unless the accepted upstream evidence already identifies concrete opportunities worth automating.
+
 ## Guardrails
 
 - Do not invent missing evidence or smooth over contradictions.
