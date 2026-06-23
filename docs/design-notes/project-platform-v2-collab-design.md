@@ -16,7 +16,7 @@ That is enough to **record** what happens, but it is not enough to **coordinate*
 2. **Event closure** — there is no internal event bus, no external-system (GitHub CI/PR) feedback loop, and no way to **notify a human** when something needs approval.
 3. **Concurrency coordination** — only one worker per work item can be modeled today; real projects race, pair, and run primary/backup.
 
-A concrete pain: the platform currently has **no messaging channel at all**. The moment an agent needs a human to approve a goal change or unblock a budget, there is nowhere for that request to go. This document fixes that by introducing an IM gateway modeled directly after `hermes-agent/gateway/`.
+A concrete pain: the platform currently has **no messaging channel at all**. The moment an agent needs a human to approve a goal change or unblock a budget, there is nowhere for that request to go. This document fixes that by introducing an IM gateway modeled directly after the external Hermes reference checkout at `external/hermes-agent/gateway/`.
 
 ## 2. Reference Blueprints
 
@@ -24,7 +24,7 @@ We borrow shapes from three places instead of porting any single methodology:
 
 - **Open-source maintainer model** — maintainer / triager / contributor / reviewer / CI bot is the closest human analog to agent role play. Informs §4 (roles).
 - **Linear / Shape Up** — flat issues, explicit cycles, strong ownership. Informs §9 (state machine).
-- **Hermes `gateway/`** — `platforms/<platform>.py` + `channel_directory` + `delivery` + `pairing`. This is the direct blueprint for `agentcraft-im-gateway` in §10.
+- **Hermes `gateway/`** — `platforms/<platform>.py` + `channel_directory` + `delivery` + `pairing`, referenced from `external/hermes-agent/gateway/` in AgentCraft. This is the direct blueprint for `agentcraft-im-gateway` in §10.
 
 We explicitly **do not** port Scrum ceremonies. Agents run on events, not standups.
 

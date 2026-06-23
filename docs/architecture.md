@@ -86,7 +86,7 @@ Anything that needs a human approves through a uniform `Proposal`:
          ProjectEvent: PROPOSAL_RESOLVED
 ```
 
-The gateway is a separate service because IM integration is IO-heavy, platform-specific, and easy to block. The reference gateway in AgentCraft mirrors the shape of `hermes-agent/gateway/` (per-platform adapters + channel directory + delivery retry + pairing flow).
+The gateway is a separate service because IM integration is IO-heavy, platform-specific, and easy to block. The reference gateway in AgentCraft mirrors the shape of the external Hermes checkout at `external/hermes-agent/gateway/` (per-platform adapters + channel directory + delivery retry + pairing flow).
 
 ## 5. How it all fits
 

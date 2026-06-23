@@ -25,7 +25,7 @@ We borrow shapes rather than port methodologies:
 
 - **Open-source maintainer model** — maintainer / triager / contributor / reviewer / CI bot. Informs §4.
 - **Linear / Shape Up** — flat issues, explicit cycles, strong ownership. Informs §9.
-- **Hermes `gateway/`** (https://github.com/openclaw/hermes-agent) — per-platform adapter + channel directory + delivery retry + pairing flow. Blueprint for §10.
+- **Hermes `gateway/`** (https://github.com/openclaw/hermes-agent; AgentCraft reference checkout: `external/hermes-agent/gateway/`) — per-platform adapter + channel directory + delivery retry + pairing flow. Blueprint for §10.
 
 We explicitly do **not** port Scrum ceremonies. Agents run on events, not standups.
 
