@@ -57,7 +57,7 @@ Load context in this order:
 1. Inbox: urgent action items, `STOP_WORK`, `REWORK_REQUEST`, `REVIEW_REQUEST`, assignment dispatches.
 2. Assignment or role target: active assignment, review, goal, or metric request.
 3. Task packet or board slice: the narrowest packet that can answer the work.
-4. Linked memory: packet-provided `memoryRefs` first, then only additional memory found by targeted search when the packet is missing required historical context.
+4. Linked memory: runtime `criticalMemoryRefs` and packet-provided `memoryRefs` first, then only additional memory found by targeted search when the packet is missing required historical context.
 5. Event stream: project-wide events only for roles that have project-wide read permission.
 
 Do not load the full project by default. A worker should use `taskPacket.get`; a reviewer should load the handoff, criteria, and relevant memory; a PM or lead should start from resume/board slices and load broader events, metrics, files, memory, globals, or exact item details only when they can change the current coordination decision.
@@ -261,7 +261,7 @@ Use `READY` for work items that are dispatchable, `IN_PROGRESS` while execution 
 
 For a missing owner-controlled resource, create a separate owner-owned work item instead of embedding the blocker inside a worker task. Use `POST $AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/work-items` with `Authorization: Bearer $AGENT_WORKSPACE_TOKEN` when the runtime has `WORK_ITEM_CREATE`; use a high priority, and put the request under `inputPacket.resourceRequest` with `key`, `label`, `description`, `isSecret`, `category`, `required`, `createTaskOnMissing`, and `value: ""`. The workspace service owner-assigns resource-request packets; if you set `ownerId` yourself, use the project owner user id, not the owner member id. Use one atomic resource item per project-global key, with stable lowercase snake_case keys. For a credential pair or A/B test-account set, create one item for each field/key that a downstream worker must read, such as email, password, bearer token, cookie, app id, and tenant id. Do not hide extra required keys in the prose of a single resource request. Do not infer a vendor, website, social network, API provider, platform-specific key set, or platform-specific skill from a generic resource key or generic task; keep labels and descriptions neutral unless the owner explicitly named that platform. Downstream work should depend on this item or wait until the corresponding `PROJECT_GLOBAL_<KEY>` is available.
 
-`runtime.resume` returns the runtime-targeted inbox, active assignment summaries, linked thread summaries, and an event cursor. Workers should treat `ASSIGNMENT_DISPATCH` inbox items and assignment `contextPacket` values as their primary task packet.
+`runtime.resume` returns the runtime-targeted inbox, active assignment summaries, linked thread summaries, active pinned/critical `criticalMemoryRefs`, and an event cursor. `criticalMemoryRefs` are role-targeted project directives, not a full memory preload. Workers should treat `ASSIGNMENT_DISPATCH` inbox items and assignment `contextPacket` values as their primary task packet.
 
 ## Project Memory And Globals
 
@@ -269,10 +269,11 @@ Project memory is owned by `agent-workspace`. Use it for durable, reusable facts
 
 Current task state belongs in goals, features, work items, artifacts, reviews, and handoffs. Memory is for cross-item continuity. For worker execution, the preferred flow is:
 
-1. Lead/host dispatch includes relevant `memoryRefs` in the assignment packet.
-2. Worker reads those refs before implementation and avoids broad memory search by default.
-3. Worker proposes durable discoveries as `memoryCandidates` in handoff artifact metadata.
-4. Reviewer approval persists accepted candidates to project memory.
+1. Lead and Planner runtimes receive active pinned/critical `criticalMemoryRefs` for their role on resume.
+2. Lead/host dispatch includes relevant `memoryRefs` in the assignment packet.
+3. Worker reads those refs before implementation and avoids broad memory search by default.
+4. Worker proposes durable discoveries as `memoryCandidates` in handoff artifact metadata.
+5. Reviewer approval persists accepted candidates to project memory.
 
 Common memory types are `DECISION`, `CONSTRAINT`, `FACT`, `RISK`, `OPEN_QUESTION`, and `INTERFACE_CONTRACT`.
 
@@ -282,10 +283,12 @@ Shell helpers are available in this skill bundle:
 . /opt/data/skills/agent-workspace/scripts/project-memory.sh
 project-memory-search "api contract" INTERFACE_CONTRACT
 project-memory-write DECISION "Use workspace storage" "Durable project files and memory are owned by agent-workspace."
+project-memory-write --work-item "$AGENT_WORKSPACE_WORK_ITEM_ID" FACT "Verified behavior" "The assigned item verified this reusable fact."
+project-memory-write --pinned --priority critical --audience LEAD_AGENT,PLANNER_AGENT --applies-to resume,planning CONSTRAINT "Stay inside current goal" "Planning must keep new work items inside the active goal acceptance bar."
 project-global-list
 ```
 
-Use `project-memory-write` only for explicit lead/reviewer/owner flows or narrow administrative writes. Routine worker discoveries should go through review-gated `memoryCandidates`.
+Use `project-memory-write` only for explicit lead/reviewer/owner flows or narrow administrative writes. When the write belongs to a specific item, pass `--work-item <workItemId>` rather than relying on ambient context. Use `--pinned --priority critical --audience ...` only for durable project directives that should be injected into matching roles. Routine worker discoveries should go through review-gated `memoryCandidates`.
 
 If the helper script is not mounted, call the HTTP endpoints directly with `AGENT_WORKSPACE_BASE_URL`, `AGENT_WORKSPACE_PROJECT_ID`, and `AGENT_WORKSPACE_TOKEN` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env`. Project file endpoints are `GET /v1/projects/{projectId}/files?prefix=...&recursive=...`, `GET /v1/projects/{projectId}/files/read?path=...`, `POST /v1/projects/{projectId}/files/write`, and `POST /v1/projects/{projectId}/files/upload`; avoid invented routes such as `/files/list`.
 

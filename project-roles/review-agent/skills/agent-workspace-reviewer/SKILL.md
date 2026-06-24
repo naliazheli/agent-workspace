@@ -56,7 +56,7 @@ Decision rules:
 - If a candidate is useful but needs corrected wording or metadata, set `details.memoryCandidates` to the exact replacement list. This replaces the artifact candidate list for persistence.
 - Do not include secrets, raw logs, temporary URLs, task-local progress, guesses, or unsupported claims.
 
-Use `project-memory-search` to check whether a candidate duplicates existing memory. Use `project-memory-write` only for explicit reviewer/owner/lead memory edits outside the handoff-candidate approval path.
+Use `project-memory-search` to check whether a candidate duplicates existing memory. Use `project-memory-write --work-item <workItemId>` only for explicit reviewer/owner/lead memory edits outside the handoff-candidate approval path; add `--pinned --priority critical --audience ...` only for durable role-targeted project directives.
 
 ```bash
 # Search existing memory before approving a candidate.

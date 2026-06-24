@@ -9,13 +9,13 @@ description: PLANNER_AGENT role skill for agent-workspace. Use when breaking a g
 
 The PLANNER_AGENT decomposes a goal into ready-to-dispatch work. It should make the next worker's context obvious enough that execution can start without another planning round.
 
-Use `$agent-workspace` first, then load only the target goal, relevant brief, memory, and existing feature group/work item tree.
+Use `$agent-workspace` first, apply role-targeted `criticalMemoryRefs`, then load only the target goal, relevant brief, memory, and existing feature group/work item tree.
 When the assignment packet includes `projectFiles`, `inputPacket.projectFiles`, or `acceptedUpstreamItems`, read those project files before decomposing the goal. If the goal says "previous", "prior", "based on", "上一份", "上次", "根据", "结果", or "报告" but no upstream file is provided, discover it instead of guessing: list goals with `GET $AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/goals?includeClosed=true&limit=100`, inspect likely prior goals, list their accepted child work items with `GET .../work-items?goalId=<goalId>&statuses=ACCEPTED&includeClosed=true&limit=100`, open relevant work item details, collect output paths from `outputContract.sharedFiles`, `inputPacket.outputProjectFiles`, `inputPacket.projectFiles`, `inputPacket.sharedFiles`, and `inputPacket.acceptedUpstreamItems`, then read only the source files that match the current goal.
 Classify discovered outputs before planning. `sourceArtifacts` are files that match the current goal subject and enumerate the rows, categories, opportunities, assets, bugs, hypotheses, or sources to decompose. `downstreamArtifacts` are verification, synthesis, summary, or audit reports produced from those sources. Downstream artifacts may provide background, but they do not satisfy a new goal that asks to split, verify, validate, or cover the source unless the goal explicitly asks to audit, review, or continue existing verification. For enumerated verification or validation goals, default to one work item per source row/opportunity. Batches may include at most 3 source entries unless the owner explicitly asked for batching; every batch must include `inputPacket.batchJustification` and exact `inputPacket.sourceRows`, `inputPacket.sourceCategories`, or `inputPacket.sourceOpportunities`.
 
 ## Reads And Writes
 
-- Reads: project brief, shared memory, target goal, related feature groups and work items.
+- Reads: project brief, role-targeted `criticalMemoryRefs`, shared memory, target goal, related feature groups and work items.
 - Writes: optional feature groups, work items, recommended skill tags, memory.
 - Core tools: `goal.get`, `feature.create`, `feature.update`, `workItem.create`, `workItem.update`, `workItem.markReady`, `memory.write`.
 

@@ -599,6 +599,17 @@ const createMemorySchema = z.object({
   createdByUserId: z.string().trim().optional(),
 });
 
+const updateMemorySchema = z.object({
+  memoryType: memoryTypeSchema.optional(),
+  title: z.string().trim().max(191).nullable().optional(),
+  content: z.string().trim().min(1).optional(),
+  summary: z.string().trim().nullable().optional(),
+  sourceArtifactId: z.string().trim().nullable().optional(),
+  workItemId: z.string().trim().nullable().optional(),
+  metadata: z.record(z.any()).optional(),
+  updatedByUserId: z.string().trim().optional(),
+});
+
 const projectGlobalSchema = z.object({
   key: z.string().trim().min(1).max(100),
   label: z.string().trim().optional().nullable(),
@@ -686,12 +697,27 @@ async function inferRuntimeWorkItemContext(projectId, auth) {
     return null;
   }
 
-  await ensureProjectReference(projectId, 'workItem', workItemIds[0]);
+  const workItemContext = await workItemReferenceContext(projectId, workItemIds[0]);
   return {
-    workItemId: workItemIds[0],
+    ...workItemContext,
     source: 'runtime-active-assignment',
     assignmentId: assignments[0]?.id || null,
     assignmentStatus: assignments[0]?.status || null,
+  };
+}
+
+async function workItemReferenceContext(projectId, workItemId, client = prisma) {
+  const found = await client.projectWorkItem.findFirst({
+    where: { id: workItemId, projectId },
+    select: { id: true, goalId: true, featureId: true },
+  });
+  if (!found) {
+    throw badRequest('workItem not found in project');
+  }
+  return {
+    workItemId: found.id,
+    goalId: found.goalId ?? null,
+    featureId: found.featureId ?? null,
   };
 }
 
@@ -703,13 +729,21 @@ async function resolveWorkItemContext(projectId, request, candidates = [], auth 
   for (const candidate of candidateList) {
     const workItemId = cleanOptionalString(candidate?.value);
     if (!workItemId) continue;
-    await ensureProjectReference(projectId, 'workItem', workItemId);
+    const workItemContext = await workItemReferenceContext(projectId, workItemId);
     return {
-      workItemId,
+      ...workItemContext,
       source: candidate?.source || 'request',
     };
   }
   return inferRuntimeWorkItemContext(projectId, auth);
+}
+
+function workItemContextMetadata(workItemContext) {
+  return {
+    ...(workItemContext?.workItemId ? { workItemId: workItemContext.workItemId } : {}),
+    ...(workItemContext?.goalId ? { goalId: workItemContext.goalId } : {}),
+    ...(workItemContext?.featureId ? { featureId: workItemContext.featureId } : {}),
+  };
 }
 
 function workItemContextPayload(workItemContext, auth) {
@@ -721,6 +755,8 @@ function workItemContextPayload(workItemContext, auth) {
           workItemContextSource: workItemContext.source,
         }
       : {}),
+    ...(workItemContext?.goalId ? { goalId: workItemContext.goalId } : {}),
+    ...(workItemContext?.featureId ? { featureId: workItemContext.featureId } : {}),
     ...(workItemContext?.assignmentId
       ? {
           assignmentId: workItemContext.assignmentId,
@@ -736,6 +772,142 @@ function workItemContextPayload(workItemContext, auth) {
       : {}),
     authType: auth?.type || null,
   };
+}
+
+function normalizeMemoryAudienceToken(value) {
+  const token = String(value || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  const aliases = {
+    '*': 'ALL',
+    ANY: 'ALL',
+    EVERYONE: 'ALL',
+    ALL_ROLES: 'ALL',
+    LEAD: 'LEAD_AGENT',
+    PLANNER: 'PLANNER_AGENT',
+    WORKER: 'WORKER_AGENT',
+    REVIEWER: 'REVIEW_AGENT',
+    PM: 'PM_AGENT',
+  };
+  return aliases[token] || token;
+}
+
+function memoryValueSet(value) {
+  const values = new Set();
+  const visit = (input) => {
+    if (!input) return;
+    if (typeof input === 'string') {
+      input.split(/[,\s]+/).map((part) => part.trim()).filter(Boolean).forEach((part) => values.add(part));
+      return;
+    }
+    if (Array.isArray(input)) {
+      input.forEach(visit);
+      return;
+    }
+    if (typeof input === 'object') {
+      Object.values(input).forEach(visit);
+    }
+  };
+  visit(value);
+  return values;
+}
+
+function memoryMetadata(memory) {
+  return memory?.metadata && typeof memory.metadata === 'object' && !Array.isArray(memory.metadata)
+    ? memory.metadata
+    : {};
+}
+
+function memoryAudience(memory) {
+  const metadata = memoryMetadata(memory);
+  return new Set(
+    [...memoryValueSet(metadata.audience ?? metadata.audiences ?? metadata.roles)]
+      .map(normalizeMemoryAudienceToken)
+      .filter(Boolean),
+  );
+}
+
+function memoryAppliesTo(memory) {
+  const metadata = memoryMetadata(memory);
+  return new Set(
+    [...memoryValueSet(metadata.appliesTo ?? metadata.phases ?? metadata.phase)]
+      .map((value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_'))
+      .filter(Boolean),
+  );
+}
+
+function memoryIsActiveDirective(memory) {
+  const status = String(memoryMetadata(memory).status || 'active').trim().toLowerCase();
+  return !['inactive', 'archived', 'superseded', 'disabled', 'expired'].includes(status);
+}
+
+function memoryIsPinnedOrCritical(memory) {
+  const metadata = memoryMetadata(memory);
+  const priority = String(metadata.priority || metadata.importance || '').trim().toLowerCase();
+  return metadata.pinned === true || metadata.pinned === 'true' || priority === 'critical' || priority === 'pinned';
+}
+
+function memoryMatchesAudience(memory, role, defaultRoles = []) {
+  const normalizedRole = normalizeMemoryAudienceToken(role);
+  const audience = memoryAudience(memory);
+  if (!audience.size) {
+    return defaultRoles.map(normalizeMemoryAudienceToken).includes(normalizedRole);
+  }
+  return audience.has('ALL') || audience.has(normalizedRole);
+}
+
+function memoryMatchesPhase(memory, phase) {
+  const phases = memoryAppliesTo(memory);
+  if (!phases.size) return true;
+  const normalizedPhase = String(phase || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return phases.has('all') || phases.has(normalizedPhase);
+}
+
+function memoryPriorityWeight(memory) {
+  const metadata = memoryMetadata(memory);
+  const priority = String(metadata.priority || metadata.importance || '').trim().toLowerCase();
+  if (priority === 'critical') return 30;
+  if (priority === 'high') return 20;
+  if (metadata.pinned === true || metadata.pinned === 'true') return 10;
+  return 0;
+}
+
+function memoryDirectiveMatchesRole(memory, role, phase) {
+  return (
+    memoryIsActiveDirective(memory) &&
+    memoryIsPinnedOrCritical(memory) &&
+    memoryMatchesAudience(memory, role, ['LEAD_AGENT', 'PLANNER_AGENT']) &&
+    memoryMatchesPhase(memory, phase)
+  );
+}
+
+function memoryDirectiveRef(memory) {
+  const metadata = memoryMetadata(memory);
+  return {
+    id: memory.id,
+    memoryType: memory.memoryType,
+    type: memory.memoryType,
+    title: memory.title || memory.summary || memory.content?.slice(0, 80),
+    summary: memory.summary || memory.content?.slice(0, 500),
+    sourceArtifactId: memory.sourceArtifactId || null,
+    scope: 'pinned-role-directive',
+    pinned: metadata.pinned === true || metadata.pinned === 'true',
+    priority: typeof metadata.priority === 'string' ? metadata.priority : null,
+    audience: [...memoryAudience(memory)],
+    appliesTo: [...memoryAppliesTo(memory)],
+    metadata,
+  };
+}
+
+async function projectCriticalMemoryRefs(projectId, role, phase = 'resume', limit = 8) {
+  const memories = await prisma.projectMemory.findMany({
+    where: { projectId },
+    orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    take: 100,
+  });
+  return memories
+    .filter((memory) => memoryDirectiveMatchesRole(memory, role, phase))
+    .sort((left, right) => memoryPriorityWeight(right) - memoryPriorityWeight(left))
+    .slice(0, limit)
+    .map(memoryDirectiveRef);
 }
 
 function unauthorized(message) {
@@ -3330,7 +3502,19 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
   };
   const isLeadRuntime = member.role === 'LEAD_AGENT';
 
-  const [activeInbox, assignmentRows, eventMax, project, activeGoals, backlogGoals, features, workItems, goalStatusRows, workItemStatusRows] = await Promise.all([
+  const [
+    activeInbox,
+    assignmentRows,
+    eventMax,
+    project,
+    activeGoals,
+    backlogGoals,
+    features,
+    workItems,
+    goalStatusRows,
+    workItemStatusRows,
+    criticalMemoryRefs,
+  ] = await Promise.all([
     prisma.projectInboxItem.findMany({
       where: {
         projectId: input.projectId,
@@ -3406,6 +3590,7 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
       where: { projectId: input.projectId },
       _count: { _all: true },
     }),
+    projectCriticalMemoryRefs(input.projectId, member.role, 'resume').catch(() => []),
   ]);
 
   const threadIds = [...new Set(activeInbox.map((item) => item.threadId).filter(Boolean))];
@@ -3450,6 +3635,10 @@ app.post('/v1/runtimes/:runtimeId/resume', async (request) => {
     activeInbox,
     assignmentSummaries: assignmentRows,
     threadSummaries,
+    criticalMemoryRefs,
+    memoryContextPolicy: criticalMemoryRefs.length
+      ? 'criticalMemoryRefs contains active pinned/critical project memory selected for this runtime role; it is not a full project memory preload.'
+      : 'No active pinned/critical memory was selected for this runtime role.',
     eventCursor: eventMax._max.seq ?? 0,
   };
 });
@@ -3987,7 +4176,7 @@ app.post('/v1/projects/:projectId/memories', async (request) => {
         summary: input.summary ?? null,
         metadata: {
           ...(input.metadata ?? {}),
-          ...(workItemContext?.workItemId ? { workItemId: workItemContext.workItemId } : {}),
+          ...workItemContextMetadata(workItemContext),
           ...(runtimeMetadataFromAuth(auth) ? { runtime: runtimeMetadataFromAuth(auth) } : {}),
         },
         sourceArtifactId: input.sourceArtifactId ?? null,
@@ -4013,6 +4202,84 @@ app.post('/v1/projects/:projectId/memories', async (request) => {
     });
 
     return created;
+  });
+
+  return memory;
+});
+
+app.patch('/v1/projects/:projectId/memories/:memoryId', async (request) => {
+  const { projectId, memoryId } = request.params;
+  const auth = await requireHostOrRuntime(request, { projectId, scope: 'MEMORY_WRITE' });
+  const input = updateMemorySchema.parse(request.body ?? {});
+  await getProjectOrThrow(projectId);
+
+  const existing = await prisma.projectMemory.findFirst({
+    where: { id: memoryId, projectId },
+    select: { id: true, metadata: true },
+  });
+  if (!existing) {
+    throw notFound('Memory not found');
+  }
+
+  const workItemContext = await resolveWorkItemContext(projectId, request, [
+    { value: input.workItemId, source: 'body.workItemId' },
+    { value: input.metadata?.workItemId, source: 'body.metadata.workItemId' },
+    { value: input.metadata?.currentWorkItemId, source: 'body.metadata.currentWorkItemId' },
+  ], auth);
+
+  if (input.sourceArtifactId) {
+    const artifact = await prisma.projectArtifact.findFirst({
+      where: { id: input.sourceArtifactId, projectId },
+      select: { id: true },
+    });
+    if (!artifact) {
+      throw badRequest('Source artifact not found in project');
+    }
+  }
+
+  const updateData = {};
+  if (input.memoryType !== undefined) updateData.memoryType = input.memoryType;
+  if (input.title !== undefined) updateData.title = input.title || null;
+  if (input.content !== undefined) updateData.content = input.content;
+  if (input.summary !== undefined) updateData.summary = input.summary || null;
+  if (input.sourceArtifactId !== undefined) updateData.sourceArtifactId = input.sourceArtifactId || null;
+  if (input.metadata !== undefined) {
+    updateData.metadata = {
+      ...(input.metadata ?? {}),
+      ...workItemContextMetadata(workItemContext),
+      ...(runtimeMetadataFromAuth(auth) ? { runtime: runtimeMetadataFromAuth(auth) } : {}),
+    };
+  }
+
+  if (!Object.keys(updateData).length) {
+    throw badRequest('No memory updates provided');
+  }
+
+  const actorUserId = await actorUserIdFromAuth(projectId, auth, input.updatedByUserId);
+  const memory = await prisma.$transaction(async (tx) => {
+    const updated = await tx.projectMemory.update({
+      where: { id: memoryId },
+      data: updateData,
+      include: {
+        createdByUser: { select: { id: true, email: true, displayName: true, role: true } },
+      },
+    });
+
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'MEMORY_UPDATED',
+      refType: 'MEMORY',
+      refId: updated.id,
+      actorUserId,
+      payload: {
+        memoryType: updated.memoryType,
+        title: updated.title,
+        sourceArtifactId: updated.sourceArtifactId,
+        ...workItemContextPayload(workItemContext, auth),
+      },
+    });
+
+    return updated;
   });
 
   return memory;
@@ -4361,6 +4628,11 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
     if (input.decision === 'APPROVED' && reviewArtifact) {
       const candidates = memoryCandidatesFromArtifact(reviewArtifact, input.details);
       for (const candidate of candidates) {
+        const memoryWorkItemContext = await workItemReferenceContext(
+          projectId,
+          reviewArtifact.workItemId ?? assignment.workItemId,
+          tx,
+        );
         const createdMemory = await tx.projectMemory.create({
           data: {
             id: randomUUID(),
@@ -4373,7 +4645,7 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
               ...candidate.metadata,
               source: 'approved-handoff-memory-candidate',
               sourceArtifactId: reviewArtifact.id,
-              workItemId: reviewArtifact.workItemId ?? assignment.workItemId,
+              ...workItemContextMetadata(memoryWorkItemContext),
               reviewId: createdReview.id,
               candidateIndex: candidate.index,
             },
@@ -4389,7 +4661,7 @@ app.post('/v1/projects/:projectId/reviews', async (request) => {
           refId: createdMemory.id,
           actorUserId: reviewerMember.userId,
           payload: {
-            workItemId: reviewArtifact.workItemId ?? assignment.workItemId,
+            ...workItemContextMetadata(memoryWorkItemContext),
             memoryType: createdMemory.memoryType,
             title: createdMemory.title,
             sourceArtifactId: createdMemory.sourceArtifactId,

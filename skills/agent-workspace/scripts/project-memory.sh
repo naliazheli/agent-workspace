@@ -28,21 +28,126 @@ project-memory-search() {
 
 project-memory-write() {
   project_context_env
-  local memory_type="${1:?memory type is required}"
-  local title="${2:-}"
-  local content="${3:-}"
+  local work_item_id="${AGENT_WORKSPACE_WORK_ITEM_ID:-}"
+  local priority=""
+  local pinned=""
+  local audience=""
+  local applies_to=""
+  local status=""
+  local goal_id=""
+  local feature_id=""
+  local args=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --pinned)
+        pinned="true"
+        shift
+        ;;
+      --priority)
+        priority="${2:?priority is required after $1}"
+        shift 2
+        ;;
+      --priority=*)
+        priority="${1#*=}"
+        shift
+        ;;
+      --audience)
+        audience="${2:?audience is required after $1}"
+        shift 2
+        ;;
+      --audience=*)
+        audience="${1#*=}"
+        shift
+        ;;
+      --applies-to|--appliesTo)
+        applies_to="${2:?applies-to is required after $1}"
+        shift 2
+        ;;
+      --applies-to=*|--appliesTo=*)
+        applies_to="${1#*=}"
+        shift
+        ;;
+      --status)
+        status="${2:?status is required after $1}"
+        shift 2
+        ;;
+      --status=*)
+        status="${1#*=}"
+        shift
+        ;;
+      --goal|--goal-id|--goalId)
+        goal_id="${2:?goal id is required after $1}"
+        shift 2
+        ;;
+      --goal=*|--goal-id=*|--goalId=*)
+        goal_id="${1#*=}"
+        shift
+        ;;
+      --feature|--feature-id|--featureId)
+        feature_id="${2:?feature id is required after $1}"
+        shift 2
+        ;;
+      --feature=*|--feature-id=*|--featureId=*)
+        feature_id="${1#*=}"
+        shift
+        ;;
+      --work-item|--workItem|-w)
+        work_item_id="${2:?work item id is required after $1}"
+        shift 2
+        ;;
+      --work-item=*|--workItem=*)
+        work_item_id="${1#*=}"
+        shift
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+  local memory_type="${args[0]:?memory type is required}"
+  local title="${args[1]:-}"
+  local content="${args[2]:-}"
   if [ -z "$content" ]; then
     content="$(cat)"
   fi
+  local header_args=()
+  if [ -n "$work_item_id" ]; then
+    header_args=(-H "X-AgentCraft-Work-Item-Id: $work_item_id")
+  fi
   node -e '
-    const [memoryType, title, content] = process.argv.slice(1);
+    const [
+      memoryType,
+      title,
+      content,
+      workItemId,
+      priority,
+      pinned,
+      audience,
+      appliesTo,
+      status,
+      goalId,
+      featureId,
+    ] = process.argv.slice(1);
+    const split = (value) => String(value || "").split(/[,\s]+/).map((item) => item.trim()).filter(Boolean);
     const body = { memoryType, content };
+    const metadata = {};
     if (title) body.title = title;
+    if (workItemId) body.workItemId = workItemId;
+    if (priority) metadata.priority = priority;
+    if (pinned) metadata.pinned = ["1", "true", "yes", "pinned"].includes(String(pinned).toLowerCase());
+    if (audience) metadata.audience = split(audience);
+    if (appliesTo) metadata.appliesTo = split(appliesTo);
+    if (status) metadata.status = status;
+    if (goalId) metadata.goalId = goalId;
+    if (featureId) metadata.featureId = featureId;
+    if (Object.keys(metadata).length) body.metadata = metadata;
     process.stdout.write(JSON.stringify(body));
-  ' "$memory_type" "$title" "$content" |
+  ' "$memory_type" "$title" "$content" "$work_item_id" "$priority" "$pinned" "$audience" "$applies_to" "$status" "$goal_id" "$feature_id" |
     curl -fsS "$AGENT_WORKSPACE_BASE_URL/v1/projects/$AGENT_WORKSPACE_PROJECT_ID/memories" \
       -H "Authorization: Bearer $AGENT_WORKSPACE_TOKEN" \
       -H "Content-Type: application/json" \
+      "${header_args[@]}" \
       --data-binary @-
 }
 
@@ -57,14 +162,14 @@ project_memory_usage() {
 Usage:
   . project-memory.sh
   project-memory-search [query] [memoryType] [limit]
-  project-memory-write <memoryType> [title] [content]
+  project-memory-write [--work-item <workItemId>] [--pinned] [--priority critical] [--audience LEAD_AGENT,PLANNER_AGENT] [--applies-to resume,planning] <memoryType> [title] [content]
   project-global-list
 
   bash project-memory.sh <command> [args]
 
 Commands:
   search, project-memory-search [query] [memoryType] [limit]
-  write, project-memory-write <memoryType> [title] [content]
+  write, project-memory-write [--work-item <workItemId>] [--pinned] [--priority critical] [--audience LEAD_AGENT,PLANNER_AGENT] [--applies-to resume,planning] <memoryType> [title] [content]
   global-list, globals, project-global-list
 
 Notes:

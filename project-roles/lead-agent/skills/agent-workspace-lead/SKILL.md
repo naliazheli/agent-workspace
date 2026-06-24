@@ -13,13 +13,13 @@ Use `$agent-workspace` first to authenticate and resume. Treat the resume respon
 
 ## Read Budget
 
-- Start with: resume/inbox, active assignment signals, `boardSnapshot.goalSummaries`, `boardSnapshot.statusCounts`, current budget lines, and launchable role summaries already provided in the runtime prompt.
+- Start with: resume/inbox, active assignment signals, role-targeted `criticalMemoryRefs`, `boardSnapshot.goalSummaries`, `boardSnapshot.statusCounts`, current budget lines, and launchable role summaries already provided in the runtime prompt.
 - Fetch `/board` only when the resume snapshot is missing or too stale for the current decision.
 - Page active goals with `/goals?statuses=IN_PROGRESS,BLOCKED&includeClosed=false&limit=100` only when managing all goals, polling/frontier reviewing, visible status counts exceed the slice, or a goal-completion decision depends on hidden active goals. Add `OPEN` only for backlog/planning decisions; read terminal goal statuses only for closure audits.
 - For each inspected goal, first read lead-attention work item summaries with `/work-items?goalId=<goalId>&statuses=READY,NEEDS_REVISION,IN_REVIEW,ASSIGNED,IN_PROGRESS,REPORT_READY,REJECTED&limit=100&page=1`.
 - Read `/work-items?goalId=<goalId>&statuses=ACCEPTED&limit=100&page=1` only when checking sufficiency, dependencies, or aggregation. Use `includeClosed=true` only for duplicate, cancellation, or history audits.
 - Fetch exact work item detail only for items you may accept, revise, duplicate-check, dispatch, use as dependencies, recover from failure, or use to decide goal completion.
-- Read project globals, shared files, memory, events, reviews, and member/runtime details lazily and narrowly. Use project globals without values for presence/capacity checks; request values only when authorized and required for the current decision.
+- Read and apply `criticalMemoryRefs` before planning, dispatch, or marking goals done. Read other project globals, shared files, memory, events, reviews, and member/runtime details lazily and narrowly. Use project globals without values for presence/capacity checks; request values only when authorized and required for the current decision.
 - Do not read full skill files, shared folders, all events, all memories, or all work items just to "get context."
 
 ## Planning Objects
