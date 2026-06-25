@@ -10,6 +10,8 @@
       "agent-workspace.v0.project.listMembers",
       "agent-workspace.v0.event.list",
       "agent-workspace.v0.memory.search",
+      "agent-workspace.v0.projectGlobal.list",
+      "agent-workspace.v0.projectGlobal.write",
       "agent-workspace.v0.projectFile.list",
       "agent-workspace.v0.projectFile.search",
       "agent-workspace.v0.projectFile.read",

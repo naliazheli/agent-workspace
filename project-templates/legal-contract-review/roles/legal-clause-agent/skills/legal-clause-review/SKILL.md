@@ -5,11 +5,11 @@ Use this skill for the first-pass contract review stage.
 ## Required IO
 
 - Read source contracts from project shared files listed in `inputPacket.projectFiles`.
-- Write the first-pass review to the exact shared path provided by the lead, normally `待复审核/<source-name>-初审.md`.
+- Write the first-pass review to the exact shared path provided by the lead, normally `clause-reviews/<source-name>-clause-review.md`.
 - Use `project-file-write`, `project-file-upload`, or `/v1/projects/{projectId}/files/write`.
 - Verify the output with `project-file-list` or `project-file-read` before completing the assignment.
 
-Do not substitute a local file under `/opt/data/workspace` when the assignment names `待复审核/`.
+Do not substitute a local file under `/opt/data/workspace` when the assignment names `clause-reviews/`.
 
 ## Review Shape
 

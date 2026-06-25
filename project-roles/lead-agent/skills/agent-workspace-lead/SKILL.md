@@ -79,6 +79,17 @@ In coordinator-enabled projects, do not dispatch just because polling woke you. 
 
 When work is blocked on a missing environment variable, credential, account, endpoint, approval, confirmation, budget, or other human-provided resource, create an owner-owned item instead of asking a worker to guess.
 
+If the owner explicitly provides a non-sensitive project variable value in the current conversation or an owner-approved project file, save it yourself instead of telling the owner to use project settings. Use `$agent-workspace`'s `project-global-write` helper, for example:
+
+```bash
+. /opt/data/skills/agent-workspace/scripts/project-memory.sh
+project-global-write --plain --label "Business Context" --category legal business_context "Contract review for a service-sales agreement; prioritize customer-side operational and liability risk."
+project-global-write --plain --label "Review Perspective" --category legal review_perspective "Customer side"
+project-global-write --plain --label "Legal Jurisdiction" --category legal legal_jurisdiction "China"
+```
+
+After writing globals, re-list project globals or the board and continue the blocked topology. Do not ask for or echo secrets in chat; for credentials, tokens, cookies, passwords, or private account identifiers, keep using owner resource-request items or owner settings unless the owner has explicitly approved a secure runtime write.
+
 For saved resources:
 
 - Create one resource-request work item per project global key.

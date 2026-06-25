@@ -1098,6 +1098,73 @@ function sanitizeProjectGlobals(globals, { includeValues = false } = {}) {
   }));
 }
 
+async function acceptConfiguredResourceRequestItems(tx, { projectId, globals, actorUserId, source = null }) {
+  const configuredIdentities = new Set(
+    globals
+      .filter((global) => Boolean(global?.value))
+      .map((global) => projectGlobalIdentity(global).toLowerCase())
+      .filter(Boolean),
+  );
+  if (!configuredIdentities.size) {
+    return [];
+  }
+
+  const candidates = await tx.projectWorkItem.findMany({
+    where: {
+      projectId,
+      status: { notIn: CLOSED_WORK_ITEM_STATUSES },
+    },
+    select: {
+      id: true,
+      title: true,
+      workType: true,
+      goalId: true,
+      featureId: true,
+      status: true,
+      inputPacket: true,
+    },
+  });
+  const matched = candidates
+    .map((item) => ({
+      item,
+      identity: resourceRequestIdentityFromPacket(item.inputPacket, item.goalId),
+    }))
+    .filter(({ identity }) => identity && configuredIdentities.has(identity.toLowerCase()));
+
+  if (!matched.length) {
+    return [];
+  }
+
+  const ids = matched.map(({ item }) => item.id);
+  await tx.projectWorkItem.updateMany({
+    where: { id: { in: ids } },
+    data: { status: 'ACCEPTED' },
+  });
+
+  for (const { item, identity } of matched) {
+    await appendProjectEvent(tx, {
+      projectId,
+      type: 'WORK_ITEM_STATUS_CHANGED',
+      refType: 'WORK_ITEM',
+      refId: item.id,
+      actorUserId,
+      payload: {
+        workItemId: item.id,
+        title: item.title,
+        workType: item.workType,
+        goalId: item.goalId,
+        featureId: item.featureId,
+        previousStatus: item.status,
+        status: 'ACCEPTED',
+        source: source || 'project-global-write',
+        resourceRequestIdentity: identity,
+      },
+    });
+  }
+
+  return ids;
+}
+
 function getProjectFileFolders(settings = {}) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
     return [];
@@ -2514,6 +2581,7 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
     delete nextSettings.projectGlobals;
   }
 
+  let acceptedResourceRequestItemIds = [];
   await prisma.$transaction(async (tx) => {
     if (desiredStorageKeys.length) {
       await tx.projectGlobalSecret.deleteMany({
@@ -2604,12 +2672,19 @@ app.put('/v1/projects/:projectId/globals', async (request) => {
         payload,
       });
     }
+    acceptedResourceRequestItemIds = await acceptConfiguredResourceRequestItems(tx, {
+      projectId,
+      globals,
+      actorUserId,
+      source: input.source || null,
+    });
   });
 
   const resolved = await resolveProjectGlobals(projectId, nextSettings);
   return {
     projectId,
     globals: sanitizeProjectGlobals(resolved, { includeValues: true }),
+    acceptedResourceRequestItemIds,
   };
 });
 

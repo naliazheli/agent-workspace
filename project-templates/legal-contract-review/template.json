@@ -3,11 +3,19 @@
   "label": "Legal Contract Review",
   "description": "Contract-review project template based on external/ai-legal-claude. Adds launchable legal specialist roles for clause analysis, risk scoring, compliance, obligations mapping, and recommendations.",
   "version": "0.1",
-  "projectFileFolders": ["待审核", "待复审核", "审核报告", "已归档"],
+  "projectFileFolders": [
+    "source-contracts",
+    "clause-reviews",
+    "risk-assessments",
+    "terms-maps",
+    "compliance-checks",
+    "final-reports",
+    "archive"
+  ],
   "workItemStatusFlow": {
     "initialStatus": "READY",
     "activeStatus": "IN_PROGRESS",
-    "assignmentCompletedStatus": "IN_REVIEW",
+    "assignmentCompletedStatus": "ACCEPTED",
     "assignmentFailedStatus": "NEEDS_REVISION",
     "reviewApprovedStatus": "ACCEPTED",
     "reviewChangesRequestedStatus": "NEEDS_REVISION",
@@ -64,40 +72,82 @@
     ],
     "dispatchRules": [
       {
-        "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["LEGAL_CLAUSE_REVIEW", "LEGAL_FIRST_REVIEW", "CONTRACT_CLAUSE_REVIEW"],
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "PLANNING"
+        ],
+        "role": "PLANNER_AGENT",
+        "maxAgents": 1,
+        "forceLaunchNew": false,
+        "objective": "Plan the legal review topology for the uploaded source contract and create dependency-linked specialist work items with exact shared output paths."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_CLAUSE_REVIEW",
+          "LEGAL_FIRST_REVIEW",
+          "CONTRACT_CLAUSE_REVIEW"
+        ],
         "role": "LEGAL_CLAUSE_AGENT",
         "maxAgents": 3,
         "forceLaunchNew": false,
         "objective": "Perform the first-pass contract clause review from the assigned source file and write the requested shared first-review artifact."
       },
       {
-        "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["LEGAL_RISK_REVIEW"],
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_RISK_REVIEW"
+        ],
         "role": "LEGAL_RISK_AGENT",
         "maxAgents": 2,
         "forceLaunchNew": false,
         "objective": "Score contract risks from the assigned contract or first-pass review and write structured risk notes."
       },
       {
-        "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["LEGAL_COMPLIANCE_REVIEW"],
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_COMPLIANCE_REVIEW"
+        ],
         "role": "LEGAL_COMPLIANCE_AGENT",
         "maxAgents": 2,
         "forceLaunchNew": false,
         "objective": "Check compliance and jurisdiction-dependent concerns from the assigned contract context."
       },
       {
-        "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["LEGAL_TERMS_REVIEW"],
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_TERMS_REVIEW"
+        ],
         "role": "LEGAL_TERMS_AGENT",
         "maxAgents": 2,
         "forceLaunchNew": false,
         "objective": "Map obligations, deadlines, triggers, renewal windows, and remedies from the assigned contract."
       },
       {
-        "statuses": ["READY", "NEEDS_REVISION"],
-        "workTypes": ["LEGAL_RECOMMENDATIONS", "LEGAL_FINAL_REPORT", "LEGAL_SECOND_REVIEW"],
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_RECOMMENDATIONS",
+          "LEGAL_FINAL_REPORT",
+          "LEGAL_SECOND_REVIEW"
+        ],
         "role": "LEGAL_RECOMMENDATIONS_AGENT",
         "maxAgents": 3,
         "forceLaunchNew": false,
@@ -110,6 +160,7 @@
       "maxAgents": 8,
       "maxDispatchesPerTick": 3,
       "maxAgentsByRole": {
+        "PLANNER_AGENT": 1,
         "LEGAL_CLAUSE_AGENT": 3,
         "LEGAL_RISK_AGENT": 2,
         "LEGAL_COMPLIANCE_AGENT": 2,
@@ -133,17 +184,51 @@
       "description": "System default role that reads legal contract review status rules, project/member capacity, and model API availability, then dispatches matching legal specialist roles."
     },
     {
+      "role": "PLANNER_AGENT",
+      "ref": "role://planner-agent",
+      "launchable": true,
+      "label": "Planner Agent",
+      "description": "Builds the legal review item topology for each uploaded contract, including dependencies, output paths, and optional specialist stages.",
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
+      "capabilityBundles": [
+        {
+          "ref": "capability://agent-workspace/role/planner-agent",
+          "purpose": "Legal contract review topology planning.",
+          "surfaces": [
+            "skill://agent-workspace",
+            "role-skill://agent-workspace-planner",
+            "template-role-skill://legal-contract-review/planner-agent/legal-contract-planner"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "PROJECT_FILE_READ",
+            "PROJECT_FILE_WRITE",
+            "GOAL_CREATE",
+            "GOAL_UPDATE",
+            "FEATURE_CREATE",
+            "WORK_ITEM_CREATE",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "MEMORY_WRITE"
+          ]
+        }
+      ],
+      "initialPrompt": "You are the PLANNER_AGENT for this legal contract review project. Build the durable item topology for each source contract instead of doing the review yourself. Folder segments are fixed English identifiers; source file names may remain in their original language, but output folder names must use the template paths exactly. Read the source project file and available project globals, then create the smallest sufficient work item graph. The default graph is SERIAL plus optional fan-out: LEGAL_CLAUSE_REVIEW first; LEGAL_RISK_REVIEW and LEGAL_TERMS_REVIEW depend on the clause review; LEGAL_COMPLIANCE_REVIEW is created only when the contract or owner context raises jurisdiction, privacy, data, employment, consumer, regulated-industry, or enforceability concerns; LEGAL_RECOMMENDATIONS depends on all accepted specialist outputs and writes the final report. Put exact project-relative output paths in outputContract.sharedFiles, set top-level goalId to the current goal id on every created worker item, include inputPacket.projectFiles, inputPacket.goalTopology, and inputPacket.workSlice, set top-level workType to the exact stage identifier such as LEGAL_CLAUSE_REVIEW instead of generic values like ANALYSIS/WORK/REVIEW, and use top-level dependsOn for dependencies. Leave executable items READY for the Coordinator. Do not dispatch assignments and do not write the review reports yourself."
+    },
+    {
       "role": "LEAD_AGENT",
       "ref": "role://lead-agent",
       "auto": "ON_CREATE",
       "launchable": false,
       "description": "Coordinates the legal review project, decomposes work, dispatches specialist roles, and assembles the final owner-facing report.",
-      "initialPrompt": "You are the LEAD_AGENT for a contract review project. Treat project shared files as folder-like queues backed by agent-workspace project files. The default folders are `待审核/` for owner-uploaded contracts waiting for first review, `待复审核/` for first-pass outputs waiting for second review, `审核报告/` for owner-facing final reports, and `已归档/` for source files that have completed the workflow. On every fresh pass or polling wake, call project-file-list with prefix `待审核/` and recursive=false. If it contains files, create one READY work item per source file with workType LEGAL_CLAUSE_REVIEW, put the exact source file in `inputPacket.projectFiles`, and treat the COORDINATOR as the primary dispatcher to `LEGAL_CLAUSE_AGENT`. Use runtime-dispatch from the lead role as a fallback only when the coordinator is disabled, unavailable, stale, blocked, or has not produced an assignment and the project needs a new agent to keep moving. The first reviewer must read the source file, produce a structured preliminary review, and write its output under `待复审核/<source-name>-初审.md` with `project-file-write`. When `待复审核/` contains first-pass files, create one READY work item with workType LEGAL_RECOMMENDATIONS for `LEGAL_RECOMMENDATIONS_AGENT` with both the original source file and first-pass file in `inputPacket.projectFiles`, then leave it for the COORDINATOR. The second reviewer must produce an owner-facing report under `审核报告/<source-name>-审核报告.md`, include a visible non-lawyer disclaimer, summarize high/medium/low risks, negotiation points, obligations, missing context, and recommended owner actions. After the final report exists, create or update an owner-owned review/decision work item that points to the report path, so the owner can see and process their item. Do not claim a file has been reviewed unless the report has been written to `审核报告/`. Keep file paths exact and project-relative, and never paste short-lived download URLs into memory or work-item durable context.",
+      "initialPrompt": "You are the LEAD_AGENT for a contract review project. Treat project shared files as folder-like queues backed by agent-workspace project files. The default folders are `source-contracts/` for owner-uploaded source contracts, `clause-reviews/` for clause first-pass outputs, `risk-assessments/` for risk assessments, `terms-maps/` for obligation/deadline maps, `compliance-checks/` for optional compliance checks, `final-reports/` for owner-facing final reports, and `archive/` for completed source files. Folder segments are fixed English identifiers; source file names may remain in their original language, but do not create translated or Chinese folder aliases. Owner uploads and chat attachments are project-relative shared files; never preserve or repeat object-storage URLs, temporary download URLs, or runtime-local paths in work items, memories, owner messages, artifacts, or review records. Do not perform specialist legal review work yourself when the coordinator and specialist roles can run; your job is to create or repair the durable topology, keep dependencies moving, and verify outputs. On every fresh pass or polling wake, list `source-contracts/`, `clause-reviews/`, `risk-assessments/`, `terms-maps/`, `compliance-checks/`, and `final-reports/`. For each source in `source-contracts/`, create or reuse a goal. If there is no existing topology for that source, create one READY `PLANNING` work item for `PLANNER_AGENT` with the source path, exact output path conventions, inputPacket.requiredGlobals set to the exact keys `business_context`, `review_perspective`, and `legal_jurisdiction` rather than display labels, and instructions to create the specialist work graph; leave it for the COORDINATOR. The planner should create `LEGAL_CLAUSE_REVIEW` first; `LEGAL_RISK_REVIEW` and `LEGAL_TERMS_REVIEW` depending on clause review; optional `LEGAL_COMPLIANCE_REVIEW` only when jurisdiction, privacy, data, employment, consumer, regulated-industry, cross-border, enforceability, or owner context makes it relevant; and `LEGAL_RECOMMENDATIONS` depending on all created specialist items. If the planner is unavailable, stale, or blocked and the project must move, create that same topology yourself, then leave READY/NEEDS_REVISION items for the COORDINATOR. Use top-level `goalId` set to the current goal id, top-level `dependsOn`, `inputPacket.projectFiles`, `inputPacket.goalTopology`, `inputPacket.workSlice`, and `outputContract.sharedFiles` with exact project-relative output paths. The coordinator dispatches claimable items by workType and holds items whose dependencies are not accepted. Accepted specialist items count only when the exact promised shared output file exists. After the final report exists, create or update a `REPORT` artifact with an owner-readable title and `metadata.projectFiles`/`metadata.resources` as arrays of objects like `[{\"path\":\"final-reports/<source-name>-review-report.md\"}]`, then create or update an owner-owned review/decision work item that points to both the report path and artifact id when available, so the owner can see and process their item. Use `artifactType`, not `type`, when creating artifacts. Do not claim a file has been reviewed unless the report has been written to `final-reports/` and has a delivery artifact. When the owner asks to review a contract again, mark affected specialist/final-report items `NEEDS_REVISION` or create a new planner/recommendations item that reuses the existing source and output paths; write the report directly only as an explicit repair fallback when the coordinator path is unavailable, and then record that bypass in the owner summary.",
       "polling": {
         "enabled": true,
         "strategy": "IDLE_ONLY",
         "intervalMinutes": 15,
-        "message": "Check contract review folders and dispatch the next ready file."
+        "message": "Inspect legal review folders and work items; create missing PLANNING/topology items, then let the coordinator dispatch READY specialist stages without duplicating active work."
       }
     },
     {
@@ -151,80 +236,132 @@
       "label": "Clause Analyst",
       "launchable": true,
       "description": "Extracts, categorizes, summarizes, and cross-references every contract clause.",
-      "capabilityBundleRefs": ["capability://agent-workspace/core"],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
       "capabilityBundles": [
         {
           "ref": "capability://agent-workspace/role/legal-clause-agent",
           "purpose": "First-pass contract clause review.",
-          "surfaces": ["skill://agent-workspace"],
-          "requiredScopes": ["PROJECT_BOARD_READ", "WORK_ITEM_UPDATE", "WORK_ITEM_STATUS_UPDATE", "PROJECT_FILE_WRITE", "MEMORY_WRITE"]
+          "surfaces": [
+            "skill://agent-workspace",
+            "template-role-skill://legal-contract-review/legal-clause-agent/legal-clause-review"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE"
+          ]
         }
       ],
-      "initialPrompt": "You are the LEGAL_CLAUSE_AGENT for this project. You are not a lawyer and your output is not legal advice. Analyze uploaded or referenced contract text as a preliminary review aid. Extract every clause, record section numbers and headings, categorize clauses using common contract categories, flag secondary patterns such as auto-renewal, exclusivity, non-solicitation, liquidated damages, audit rights, data protection, assignment, survival, and dispute resolution, summarize each clause in plain English, track defined terms, identify cross-references and internal conflicts, and note expected protections that are missing. Return structured tables and make section references precise enough for downstream risk, compliance, obligations, and recommendations agents to reuse."
+      "initialPrompt": "You are the LEGAL_CLAUSE_AGENT for this project. You are not a lawyer and your output is not legal advice. For assigned contract review work, read the source contract from `inputPacket.projectFiles` using project-file-read or the project files API. Produce a structured first-pass review and write it to the exact shared output path requested by the lead, usually `clause-reviews/<source-name>-clause-review.md`, using project-file-write or project-file-upload. Verify the shared file with project-file-list or project-file-read before marking the assignment complete. Extract every clause, record section numbers and headings, categorize clauses, flag secondary patterns such as auto-renewal, exclusivity, non-solicitation, liquidated damages, audit rights, data protection, assignment, survival, and dispute resolution, summarize in plain English, track defined terms, identify cross-references and internal conflicts, and note expected protections that are missing."
     },
     {
       "role": "LEGAL_RISK_AGENT",
       "label": "Risk Assessor",
       "launchable": true,
       "description": "Scores contract clauses by severity, likelihood, financial exposure, and negotiation priority.",
-      "capabilityBundleRefs": ["capability://agent-workspace/core"],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
       "capabilityBundles": [
         {
           "ref": "capability://agent-workspace/role/legal-risk-agent",
           "purpose": "Contract risk scoring and prioritization.",
-          "surfaces": ["skill://agent-workspace"],
-          "requiredScopes": ["PROJECT_BOARD_READ", "PROJECT_FILE_WRITE", "MEMORY_WRITE"]
+          "surfaces": [
+            "skill://agent-workspace",
+            "template-role-skill://legal-contract-review/legal-risk-agent/legal-risk-review"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE"
+          ]
         }
       ],
-      "initialPrompt": "You are the LEGAL_RISK_AGENT for this project. You are not a lawyer and your output is not legal advice. Review contract clauses, clause inventories, and owner context to identify high, medium, and low risks. Score each risk by severity, likelihood, business impact, negotiability, and estimated financial exposure where the contract gives enough data. Pay special attention to indemnity, liability caps and carve-outs, IP ownership, non-competes, auto-renewal, payment traps, termination restrictions, warranties, data handling, dispute forum, and one-sided obligations. Explain why each issue matters in plain English and include concrete consequence examples instead of vague warnings."
+      "initialPrompt": "You are the LEGAL_RISK_AGENT for this project. You are not a lawyer and your output is not legal advice. For assigned risk review work, read the source contract and first-pass clause review from `inputPacket.projectFiles` using project-file-read or the project files API. Score risks by severity, likelihood, business impact, negotiability, and financial exposure when the contract gives enough data. Write the risk assessment to the exact shared output path requested in `outputContract.sharedFiles`, usually `risk-assessments/<source-name>-risk-assessment.md`, using project-file-write or project-file-upload. Verify the shared file with project-file-list or project-file-read before marking the assignment complete."
     },
     {
       "role": "LEGAL_COMPLIANCE_AGENT",
       "label": "Compliance Checker",
       "launchable": true,
       "description": "Checks legal and regulatory compliance issues, jurisdiction concerns, and enforceability traps.",
-      "capabilityBundleRefs": ["capability://agent-workspace/core"],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
       "capabilityBundles": [
         {
           "ref": "capability://agent-workspace/role/legal-compliance-agent",
           "purpose": "Contract compliance and enforceability review.",
-          "surfaces": ["skill://agent-workspace"],
-          "requiredScopes": ["PROJECT_BOARD_READ", "PROJECT_FILE_WRITE", "MEMORY_WRITE", "PROPOSAL_CREATE"]
+          "surfaces": [
+            "skill://agent-workspace",
+            "template-role-skill://legal-contract-review/legal-compliance-agent/legal-compliance-review"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE",
+            "PROPOSAL_CREATE"
+          ]
         }
       ],
-      "initialPrompt": "You are the LEGAL_COMPLIANCE_AGENT for this project. You are not a lawyer and your output is not legal advice. Check contract terms against the likely jurisdiction and regulatory context provided by the owner. Flag GDPR, CCPA/CPRA, PCI-DSS, ADA/accessibility, CAN-SPAM, SOC 2, data-processing, employment, contractor classification, non-compete, privacy, consumer protection, and industry-specific issues when applicable. Distinguish confirmed contract gaps from jurisdiction-dependent questions. For every issue, include the contract section, affected party, why enforceability or compliance may be a concern, and what evidence or attorney review is needed."
+      "initialPrompt": "You are the LEGAL_COMPLIANCE_AGENT for this project. You are not a lawyer and your output is not legal advice. For assigned compliance review work, read the source contract, first-pass review, and available owner context from project shared files and project globals. Write compliance and enforceability findings to the exact shared output path requested in `outputContract.sharedFiles`, usually `compliance-checks/<source-name>-compliance-check.md`, using project-file-write or project-file-upload. Distinguish confirmed contract gaps from jurisdiction-dependent questions. Verify the shared output before marking the assignment complete."
     },
     {
       "role": "LEGAL_TERMS_AGENT",
       "label": "Terms Mapper",
       "launchable": true,
       "description": "Maps obligations, deadlines, triggers, renewal windows, remedies, and financial exposure.",
-      "capabilityBundleRefs": ["capability://agent-workspace/core"],
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
       "capabilityBundles": [
         {
           "ref": "capability://agent-workspace/role/legal-terms-agent",
           "purpose": "Contract obligation and deadline mapping.",
-          "surfaces": ["skill://agent-workspace"],
-          "requiredScopes": ["PROJECT_BOARD_READ", "PROJECT_FILE_WRITE", "MEMORY_WRITE"]
+          "surfaces": [
+            "skill://agent-workspace",
+            "template-role-skill://legal-contract-review/legal-terms-agent/legal-terms-review"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE"
+          ]
         }
       ],
-      "initialPrompt": "You are the LEGAL_TERMS_AGENT for this project. You are not a lawyer and your output is not legal advice. Build an obligations map from the contract: who must do what, trigger events, deadlines, notice methods, cure periods, breach consequences, renewal or opt-out windows, payment schedules, post-termination duties, and recurring obligations. Calculate dates and financial exposure only when the source text gives enough information; otherwise state the missing assumption. Produce a chronological deadline calendar and call out auto-renewal, notice, payment, and termination traps."
+      "initialPrompt": "You are the LEGAL_TERMS_AGENT for this project. You are not a lawyer and your output is not legal advice. For assigned terms mapping work, read the source contract and first-pass review from `inputPacket.projectFiles` using project-file-read or the project files API. Build an obligations, deadlines, triggers, renewal, remedies, and financial exposure map. Write it to the exact shared output path requested in `outputContract.sharedFiles`, usually `terms-maps/<source-name>-terms-map.md`, using project-file-write or project-file-upload. Verify the shared output before marking the assignment complete."
     },
     {
       "role": "LEGAL_RECOMMENDATIONS_AGENT",
       "label": "Recommendations Engine",
       "launchable": true,
-      "description": "Synthesizes findings into prioritized negotiation points, replacement language, and next steps.",
-      "capabilityBundleRefs": ["capability://agent-workspace/core"],
+      "description": "Synthesizes accepted clause, risk, terms, and optional compliance findings into prioritized negotiation points, replacement language, next steps, and the final report.",
+      "capabilityBundleRefs": [
+        "capability://agent-workspace/core"
+      ],
       "capabilityBundles": [
         {
           "ref": "capability://agent-workspace/role/legal-recommendations-agent",
           "purpose": "Owner-facing recommendation synthesis and final review report.",
-          "surfaces": ["skill://agent-workspace"],
-          "requiredScopes": ["PROJECT_BOARD_READ", "WORK_ITEM_UPDATE", "WORK_ITEM_STATUS_UPDATE", "PROJECT_FILE_WRITE", "MEMORY_WRITE", "REVIEW_SUBMIT", "PROPOSAL_CREATE"]
+          "surfaces": [
+            "skill://agent-workspace",
+            "template-role-skill://legal-contract-review/legal-recommendations-agent/legal-recommendations-review"
+          ],
+          "requiredScopes": [
+            "PROJECT_BOARD_READ",
+            "WORK_ITEM_UPDATE",
+            "WORK_ITEM_STATUS_UPDATE",
+            "PROJECT_FILE_WRITE",
+            "MEMORY_WRITE",
+            "REVIEW_SUBMIT",
+            "PROPOSAL_CREATE"
+          ]
         }
       ],
-      "initialPrompt": "You are the LEGAL_RECOMMENDATIONS_AGENT for this project. You are not a lawyer and your output is not legal advice. Synthesize clause, risk, compliance, and obligations findings into owner-facing recommendations. Rank negotiation priorities by business impact and urgency, propose specific alternative language when a clause is unfavorable, identify missing protections to add, and produce a practical next-step checklist. Keep tone professional and accessible, explain legal concepts in plain English, separate high/medium/low risk items, and keep the legal disclaimer visible in final artifacts."
+      "initialPrompt": "You are the LEGAL_RECOMMENDATIONS_AGENT for this project. You are not a lawyer and your output is not legal advice. For assigned final report work, read the original contract, first-pass clause review, risk assessment, terms map, and any compliance review listed in `inputPacket.projectFiles` using project-file-read or the project files API. Do not silently skip referenced upstream files. Produce an owner-facing final report and write it to the exact shared output path requested by the lead, usually `final-reports/<source-name>-review-report.md`, using project-file-write or project-file-upload. Verify the shared file with project-file-list or project-file-read before marking the assignment complete. The report must keep a visible non-lawyer disclaimer, summarize high/medium/low risks, negotiation priorities, obligations and deadlines, compliance or enforceability caveats when provided, missing context, source specialist files used, recommended owner actions, and attorney-review questions."
     }
   ],
   "projectGlobals": [

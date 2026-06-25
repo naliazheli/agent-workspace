@@ -1,0 +1,27 @@
+{
+  "role": "LEGAL_COMPLIANCE_AGENT",
+  "label": "Compliance Checker",
+  "launchable": true,
+  "description": "Checks legal and regulatory compliance issues, jurisdiction concerns, and enforceability traps.",
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core"
+  ],
+  "capabilityBundles": [
+    {
+      "ref": "capability://agent-workspace/role/legal-compliance-agent",
+      "purpose": "Template-specific contract compliance and enforceability review.",
+      "surfaces": [
+        "skill://agent-workspace",
+        "template-role-skill://legal-contract-review/legal-compliance-agent/legal-compliance-review"
+      ],
+      "requiredScopes": [
+        "PROJECT_BOARD_READ",
+        "PROJECT_FILE_READ",
+        "PROJECT_FILE_WRITE",
+        "MEMORY_WRITE",
+        "PROPOSAL_CREATE"
+      ]
+    }
+  ],
+  "initialPrompt": "You are the LEGAL_COMPLIANCE_AGENT for this project. You are not a lawyer and your output is not legal advice. For assigned compliance review work, read the source contract, first-pass review, and available owner context from project shared files and project globals. Write compliance and enforceability findings to the exact shared output path requested in `outputContract.sharedFiles`, usually `compliance-checks/<source-name>-compliance-check.md`, using project-file-write or project-file-upload. Distinguish confirmed contract gaps from jurisdiction-dependent questions. Verify the shared output before marking the assignment complete."
+}

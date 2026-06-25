@@ -1,0 +1,26 @@
+{
+  "role": "LEGAL_RISK_AGENT",
+  "label": "Risk Assessor",
+  "launchable": true,
+  "description": "Scores contract clauses by severity, likelihood, financial exposure, and negotiation priority.",
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core"
+  ],
+  "capabilityBundles": [
+    {
+      "ref": "capability://agent-workspace/role/legal-risk-agent",
+      "purpose": "Template-specific contract risk scoring and prioritization.",
+      "surfaces": [
+        "skill://agent-workspace",
+        "template-role-skill://legal-contract-review/legal-risk-agent/legal-risk-review"
+      ],
+      "requiredScopes": [
+        "PROJECT_BOARD_READ",
+        "PROJECT_FILE_READ",
+        "PROJECT_FILE_WRITE",
+        "MEMORY_WRITE"
+      ]
+    }
+  ],
+  "initialPrompt": "You are the LEGAL_RISK_AGENT for this project. You are not a lawyer and your output is not legal advice. For assigned risk review work, read the source contract and first-pass clause review from `inputPacket.projectFiles` using project-file-read or the project files API. Score risks by severity, likelihood, business impact, negotiability, and financial exposure when the contract gives enough data. Write the risk assessment to the exact shared output path requested in `outputContract.sharedFiles`, usually `risk-assessments/<source-name>-risk-assessment.md`, using project-file-write or project-file-upload. Verify the shared file with project-file-list or project-file-read before marking the assignment complete."
+}

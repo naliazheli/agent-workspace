@@ -221,6 +221,7 @@ Common runtime endpoints:
 - `POST {base}/v1/projects/{projectId}/files/folders`
 - `GET {base}/v1/projects/{projectId}/globals` (requires `PROJECT_GLOBAL_READ`; add `includeValues=true` only when the authorized runtime truly needs values)
 - `PUT {base}/v1/projects/{projectId}/globals` (requires `PROJECT_GLOBAL_WRITE`; include `workItemId` and `source` when a work item is the reason for the write so the project event graph can retain that context)
+  `PUT /globals` replaces the desired global set, so use `project-global-write` or first merge with the existing `GET /globals?includeValues=true` response before writing. Do not send a one-item array unless you intend to remove every other project global.
 - `GET {base}/v1/projects/{projectId}/memories?q=...&memoryType=...` (requires `MEMORY_READ`)
 - `POST {base}/v1/projects/{projectId}/memories` (requires `MEMORY_WRITE`)
 - `POST {base}/v1/projects/{projectId}/features`
@@ -286,9 +287,14 @@ project-memory-write DECISION "Use workspace storage" "Durable project files and
 project-memory-write --work-item "$AGENT_WORKSPACE_WORK_ITEM_ID" FACT "Verified behavior" "The assigned item verified this reusable fact."
 project-memory-write --pinned --priority critical --audience LEAD_AGENT,PLANNER_AGENT --applies-to resume,planning CONSTRAINT "Stay inside current goal" "Planning must keep new work items inside the active goal acceptance bar."
 project-global-list
+project-global-write --plain --label "Business Context" --category legal business_context "Contract review for a service-sales agreement; prioritize customer-side operational and liability risk."
+project-global-write --plain --label "Review Perspective" --category legal review_perspective "Customer side"
+project-global-write --plain --label "Legal Jurisdiction" --category legal legal_jurisdiction "China"
 ```
 
 Use `project-memory-write` only for explicit lead/reviewer/owner flows or narrow administrative writes. When the write belongs to a specific item, pass `--work-item <workItemId>` rather than relying on ambient context. Use `--pinned --priority critical --audience ...` only for durable project directives that should be injected into matching roles. Routine worker discoveries should go through review-gated `memoryCandidates`.
+
+Use `project-global-write` when an authorized lead/owner runtime needs to save a project or goal variable that the owner has explicitly provided in the current conversation or an owner-approved source. The helper preserves existing globals, writes through `agent-workspace`, and closes matching owner resource-request work items when the workspace service accepts the value. Use `--plain` only for non-sensitive business context, preferences, jurisdiction, watchlists, or similar owner context. For secrets, prefer owner settings or resource-request items; if a secret must be written by runtime, pass it through stdin or an environment variable reference and never print, log, or copy the secret value into project files, comments, memories, work items, or chat.
 
 If the helper script is not mounted, call the HTTP endpoints directly with `AGENT_WORKSPACE_BASE_URL`, `AGENT_WORKSPACE_PROJECT_ID`, and `AGENT_WORKSPACE_TOKEN` from `/opt/data/AGENT_WORKSPACE_RUNTIME.env`. Project file endpoints are `GET /v1/projects/{projectId}/files?prefix=...&recursive=...`, `GET /v1/projects/{projectId}/files/read?path=...`, `POST /v1/projects/{projectId}/files/write`, and `POST /v1/projects/{projectId}/files/upload`; avoid invented routes such as `/files/list`.
 
