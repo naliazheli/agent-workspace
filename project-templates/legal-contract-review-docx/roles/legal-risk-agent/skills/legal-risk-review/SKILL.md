@@ -9,6 +9,10 @@ Use this skill for risk assessment after the clause comment batch exists.
 - Write risk findings as comment JSON to the exact shared path in `inputPacket.commentBatchPath` or `outputContract.sharedFiles`, normally `comment-batches/<source-name>/risk-review.json`.
 - Verify the comment batch with `project-file-read` before completing.
 
+## Strict JSON Validation
+
+The comment batch must be strict JSON, not JSON-like text. Escape any double quote inside a JSON string, or use Chinese quotation marks such as `“...”` / `《...》` in comment prose. Before upload and again after `project-file-read`, parse the exact content with `python -m json.tool` or `json.load`; do not mark the assignment complete until the parsed result succeeds.
+
 ## Comment Shape
 
 Include a visible non-legal-advice framing in the batch summary or first comment. Cover high, medium, and low risks; severity; likelihood; business impact; negotiability; financial exposure when inferable; affected party; clause references; rationale; and suggested mitigation or negotiation stance.

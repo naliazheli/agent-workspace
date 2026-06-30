@@ -9,6 +9,10 @@ Use this skill for first-pass clause review in the `legal-contract-review-docx` 
 - Write clause findings as comment JSON to the exact shared path in `inputPacket.commentBatchPath` or `outputContract.sharedFiles`, normally `comment-batches/<source-name>/clause-review.json`.
 - Verify the comment batch with `project-file-read` before completing.
 
+## Strict JSON Validation
+
+The comment batch must be strict JSON, not JSON-like text. Escape any double quote inside a JSON string, or use Chinese quotation marks such as `“...”` / `《...》` in comment prose. Before upload and again after `project-file-read`, parse the exact content with `python -m json.tool` or `json.load`; do not mark the assignment complete until the parsed result succeeds.
+
 ## Comment Shape
 
 Each comment should include `paragraphIndex` when possible, `anchor`, `author`, `severity`, `category`, and `comment`. Cover clause inventory, unusual or one-sided terms, missing protections, defined terms, cross-references, conflicts, operational obligations, dates, renewal and termination mechanics, and attorney-review questions.
