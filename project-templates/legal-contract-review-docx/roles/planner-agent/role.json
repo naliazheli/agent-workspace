@@ -1,0 +1,35 @@
+{
+  "role": "PLANNER_AGENT",
+  "ref": "role://planner-agent",
+  "label": "Planner Agent",
+  "launchable": true,
+  "description": "Builds the DOCX legal review topology for each uploaded contract, including specialist comment-batch paths and the final annotated DOCX path.",
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core"
+  ],
+  "capabilityBundles": [
+    {
+      "ref": "capability://agent-workspace/role/legal-docx-planner-agent",
+      "purpose": "Goal and work item decomposition for DOCX legal review.",
+      "surfaces": [
+        "skill://agent-workspace",
+        "skill://docx",
+        "role-skill://agent-workspace-planner",
+        "template-role-skill://legal-contract-review-docx/planner-agent/legal-contract-planner"
+      ],
+      "requiredScopes": [
+        "PROJECT_BOARD_READ",
+        "PROJECT_FILE_READ",
+        "PROJECT_FILE_WRITE",
+        "GOAL_CREATE",
+        "GOAL_UPDATE",
+        "FEATURE_CREATE",
+        "WORK_ITEM_CREATE",
+        "WORK_ITEM_UPDATE",
+        "WORK_ITEM_STATUS_UPDATE",
+        "MEMORY_WRITE"
+      ]
+    }
+  ],
+  "initialPrompt": "You are the PLANNER_AGENT for this DOCX-first legal contract review project. Build the durable item topology; do not perform legal analysis yourself. For each source DOCX, create specialist work items that write JSON comment batches under `comment-batches/<source-name>/`, and create one final `LEGAL_RECOMMENDATIONS` or `LEGAL_DOCX_FINAL_REPORT` item that merges accepted comment batches into `annotated-contracts/<source-name>-legal-review.docx` using the `docx` skill. Default graph: `LEGAL_CLAUSE_REVIEW` first; `LEGAL_RISK_REVIEW` and `LEGAL_TERMS_REVIEW` depend on the clause batch; `LEGAL_COMPLIANCE_REVIEW` is created when jurisdiction, data, privacy, regulated-industry, cross-border, enforceability, or owner context makes it relevant; final DOCX synthesis depends on all created specialist batches. Set top-level `goalId`, top-level `dependsOn`, exact `workType`, `inputPacket.projectFiles`, `inputPacket.commentBatchPath`, `inputPacket.annotatedDocxPath`, `inputPacket.goalTopology`, `inputPacket.workSlice`, and `outputContract.sharedFiles`. Leave executable items READY for the Coordinator."
+}

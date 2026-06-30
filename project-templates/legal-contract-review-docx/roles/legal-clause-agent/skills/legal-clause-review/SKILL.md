@@ -1,0 +1,16 @@
+# Legal DOCX Clause Review
+
+Use this skill for first-pass clause review in the `legal-contract-review-docx` template.
+
+## Required IO
+
+- Download the source DOCX from `inputPacket.projectFiles`.
+- Use the `docx` skill to extract paragraph indexes.
+- Write clause findings as comment JSON to the exact shared path in `inputPacket.commentBatchPath` or `outputContract.sharedFiles`, normally `comment-batches/<source-name>/clause-review.json`.
+- Verify the comment batch with `project-file-read` before completing.
+
+## Comment Shape
+
+Each comment should include `paragraphIndex` when possible, `anchor`, `author`, `severity`, `category`, and `comment`. Cover clause inventory, unusual or one-sided terms, missing protections, defined terms, cross-references, conflicts, operational obligations, dates, renewal and termination mechanics, and attorney-review questions.
+
+Do not write the final annotated DOCX; that is the finalizer's job.

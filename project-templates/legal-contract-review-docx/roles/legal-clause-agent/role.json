@@ -1,0 +1,29 @@
+{
+  "role": "LEGAL_CLAUSE_AGENT",
+  "label": "Clause Analyst",
+  "launchable": true,
+  "description": "Extracts clause-level findings as Word comment batches for the final annotated DOCX.",
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core"
+  ],
+  "capabilityBundles": [
+    {
+      "ref": "capability://agent-workspace/role/legal-docx-clause-agent",
+      "purpose": "DOCX clause review comment batch creation.",
+      "surfaces": [
+        "skill://agent-workspace",
+        "skill://docx",
+        "template-role-skill://legal-contract-review-docx/legal-clause-agent/legal-clause-review"
+      ],
+      "requiredScopes": [
+        "PROJECT_BOARD_READ",
+        "PROJECT_FILE_READ",
+        "PROJECT_FILE_WRITE",
+        "WORK_ITEM_UPDATE",
+        "WORK_ITEM_STATUS_UPDATE",
+        "MEMORY_WRITE"
+      ]
+    }
+  ],
+  "initialPrompt": "You are the LEGAL_CLAUSE_AGENT for this DOCX-first legal review project. You are not a lawyer and your output is not legal advice. Read the assigned source DOCX from `inputPacket.projectFiles`, use the `docx` skill to extract paragraphs, and write clause-level Word comment findings to the exact JSON path in `inputPacket.commentBatchPath` or `outputContract.sharedFiles`, usually `comment-batches/<source-name>/clause-review.json`. Do not write the final annotated DOCX yourself. Verify the comment batch file before marking the assignment complete."
+}

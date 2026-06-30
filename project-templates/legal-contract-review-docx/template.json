@@ -1,0 +1,290 @@
+{
+  "id": "legal-contract-review-docx",
+  "label": "Legal Contract Review (DOCX Comments)",
+  "description": "A DOCX-first legal contract review template. Specialist roles create structured Word-comment batches and the final role merges them into one annotated DOCX for owner review.",
+  "version": "0.1",
+  "settings": {
+    "maxActiveAgents": 10,
+    "maxActiveGoals": 20
+  },
+  "roleLaunchProfiles": [
+    {
+      "role": "LEAD_AGENT",
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "deploymentDays": 1
+    },
+    {
+      "role": "PLANNER_AGENT",
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "deploymentDays": 1
+    },
+    {
+      "role": "LEGAL_CLAUSE_AGENT",
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "deploymentDays": 1
+    },
+    {
+      "role": "LEGAL_RISK_AGENT",
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "deploymentDays": 1
+    },
+    {
+      "role": "LEGAL_TERMS_AGENT",
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "deploymentDays": 1
+    },
+    {
+      "role": "LEGAL_COMPLIANCE_AGENT",
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "deploymentDays": 1
+    },
+    {
+      "role": "LEGAL_RECOMMENDATIONS_AGENT",
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "deploymentDays": 1
+    }
+  ],
+  "projectFileFolders": [
+    "source-contracts",
+    "comment-batches",
+    "annotated-contracts",
+    "final-reports",
+    "coordination",
+    "archive"
+  ],
+  "workItemStatusFlow": {
+    "initialStatus": "READY",
+    "activeStatus": "IN_PROGRESS",
+    "assignmentCompletedStatus": "ACCEPTED",
+    "assignmentFailedStatus": "NEEDS_REVISION",
+    "reviewApprovedStatus": "ACCEPTED",
+    "reviewChangesRequestedStatus": "NEEDS_REVISION",
+    "reviewRejectedStatus": "REJECTED",
+    "closedStatus": "CANCELLED",
+    "statuses": [
+      {
+        "id": "READY",
+        "label": "Ready",
+        "category": "claimable",
+        "initial": true
+      },
+      {
+        "id": "ASSIGNED",
+        "label": "Assigned",
+        "category": "active"
+      },
+      {
+        "id": "IN_PROGRESS",
+        "label": "In Progress",
+        "category": "active"
+      },
+      {
+        "id": "IN_REVIEW",
+        "label": "In Review",
+        "category": "feedback"
+      },
+      {
+        "id": "NEEDS_REVISION",
+        "label": "Needs Revision",
+        "category": "claimable"
+      },
+      {
+        "id": "ACCEPTED",
+        "label": "Accepted",
+        "category": "completed",
+        "terminal": true,
+        "completed": true
+      },
+      {
+        "id": "REJECTED",
+        "label": "Rejected",
+        "category": "closed",
+        "terminal": true,
+        "closed": true
+      },
+      {
+        "id": "CANCELLED",
+        "label": "Cancelled",
+        "category": "closed",
+        "terminal": true,
+        "closed": true
+      }
+    ],
+    "dispatchRules": [
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "PLANNING"
+        ],
+        "role": "PLANNER_AGENT",
+        "launchMode": "local-docker",
+        "agentType": "pi",
+        "maxAgents": 1,
+        "forceLaunchNew": false,
+        "objective": "Plan the DOCX legal review topology for the uploaded contract, including comment-batch stages and one final annotated DOCX output."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_CLAUSE_REVIEW",
+          "LEGAL_FIRST_REVIEW",
+          "CONTRACT_CLAUSE_REVIEW"
+        ],
+        "role": "LEGAL_CLAUSE_AGENT",
+        "launchMode": "local-docker",
+        "agentType": "pi",
+        "maxAgents": 3,
+        "forceLaunchNew": false,
+        "objective": "Extract clause-level Word comment findings from the assigned DOCX contract and write the requested comment-batch JSON."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_RISK_REVIEW"
+        ],
+        "role": "LEGAL_RISK_AGENT",
+        "launchMode": "local-docker",
+        "agentType": "pi",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Create risk-focused Word comment findings from the assigned DOCX contract and accepted clause batch."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_TERMS_REVIEW"
+        ],
+        "role": "LEGAL_TERMS_AGENT",
+        "launchMode": "local-docker",
+        "agentType": "pi",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Create obligation, deadline, renewal, and remedy Word comment findings from the assigned DOCX contract."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_COMPLIANCE_REVIEW"
+        ],
+        "role": "LEGAL_COMPLIANCE_AGENT",
+        "launchMode": "local-docker",
+        "agentType": "pi",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Create compliance and enforceability Word comment findings for the assigned DOCX contract."
+      },
+      {
+        "statuses": [
+          "READY",
+          "NEEDS_REVISION"
+        ],
+        "workTypes": [
+          "LEGAL_RECOMMENDATIONS",
+          "LEGAL_FINAL_REPORT",
+          "LEGAL_DOCX_FINAL_REPORT"
+        ],
+        "role": "LEGAL_RECOMMENDATIONS_AGENT",
+        "launchMode": "local-docker",
+        "agentType": "pi",
+        "maxAgents": 2,
+        "forceLaunchNew": false,
+        "objective": "Merge accepted specialist comment batches into one annotated DOCX and write an owner-facing summary artifact."
+      }
+    ],
+    "coordinator": {
+      "enabled": true,
+      "minAgents": 0,
+      "maxAgents": 8,
+      "maxDispatchesPerTick": 3,
+      "launchMode": "local-docker",
+      "agentType": "pi",
+      "maxAgentsByRole": {
+        "PLANNER_AGENT": 1,
+        "LEGAL_CLAUSE_AGENT": 3,
+        "LEGAL_RISK_AGENT": 2,
+        "LEGAL_TERMS_AGENT": 2,
+        "LEGAL_COMPLIANCE_AGENT": 2,
+        "LEGAL_RECOMMENDATIONS_AGENT": 2
+      }
+    }
+  },
+  "roles": [
+    {
+      "role": "OWNER",
+      "ref": "role://owner",
+      "auto": "OWNER",
+      "launchable": false,
+      "description": "Human project owner. Provides DOCX contract files, business context, jurisdiction, review perspective, and final decisions."
+    },
+    {
+      "role": "COORDINATOR",
+      "launchable": false,
+      "label": "Coordinator",
+      "description": "System default role that dispatches DOCX legal review items to local-docker Pi specialist roles according to project status rules."
+    }
+  ],
+  "projectGlobals": [
+    {
+      "key": "legal_jurisdiction",
+      "label": "Legal Jurisdiction",
+      "description": "Primary jurisdiction or governing law to assume for preliminary contract review when the contract is silent or ambiguous.",
+      "value": "",
+      "isSecret": false,
+      "required": true,
+      "createTaskOnMissing": true,
+      "category": "legal"
+    },
+    {
+      "key": "review_perspective",
+      "label": "Review Perspective",
+      "description": "Party perspective for risk analysis, such as freelancer, vendor, customer, employer, employee, buyer, or seller.",
+      "value": "",
+      "isSecret": false,
+      "required": true,
+      "createTaskOnMissing": true,
+      "category": "legal"
+    },
+    {
+      "key": "business_context",
+      "label": "Business Context",
+      "description": "Brief context about the transaction, contract value, relationship, and risk tolerance.",
+      "value": "",
+      "isSecret": false,
+      "required": true,
+      "createTaskOnMissing": true,
+      "category": "legal"
+    },
+    {
+      "key": "max_active_items",
+      "label": "Max Active Items",
+      "description": "Maximum number of non-terminal work items allowed in this project. The API caps this value at 300.",
+      "value": "300",
+      "isSecret": false,
+      "required": false,
+      "createTaskOnMissing": false,
+      "category": "project-limits"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "role": "LEGAL_RECOMMENDATIONS_AGENT",
+  "label": "DOCX Finalizer",
+  "launchable": true,
+  "description": "Merges accepted specialist comment batches into one annotated DOCX and writes the owner-facing delivery summary.",
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core"
+  ],
+  "capabilityBundles": [
+    {
+      "ref": "capability://agent-workspace/role/legal-docx-recommendations-agent",
+      "purpose": "DOCX comment merge and final delivery.",
+      "surfaces": [
+        "skill://agent-workspace",
+        "skill://docx",
+        "template-role-skill://legal-contract-review-docx/legal-recommendations-agent/legal-recommendations-review"
+      ],
+      "requiredScopes": [
+        "PROJECT_BOARD_READ",
+        "PROJECT_FILE_READ",
+        "PROJECT_FILE_WRITE",
+        "WORK_ITEM_UPDATE",
+        "WORK_ITEM_STATUS_UPDATE",
+        "MEMORY_WRITE",
+        "REVIEW_SUBMIT",
+        "PROPOSAL_CREATE"
+      ]
+    }
+  ],
+  "initialPrompt": "You are the LEGAL_RECOMMENDATIONS_AGENT for this DOCX-first legal review project. You are not a lawyer and your output is not legal advice. Read the source DOCX and every accepted specialist comment batch listed in `inputPacket.projectFiles`. Do not silently skip referenced batches. Use the `docx` skill to merge comments into the exact annotated DOCX path in `inputPacket.annotatedDocxPath` or `outputContract.sharedFiles`, usually `annotated-contracts/<source-name>-legal-review.docx`. Also write a concise owner-facing summary to `final-reports/<source-name>-review-summary.md` when requested. Verify the annotated DOCX via project-file-read base64 before marking complete."
+}

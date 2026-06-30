@@ -1,0 +1,29 @@
+{
+  "role": "LEGAL_TERMS_AGENT",
+  "label": "Terms Mapper",
+  "launchable": true,
+  "description": "Maps obligations, deadlines, triggers, renewal windows, and remedies as Word comment batches.",
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core"
+  ],
+  "capabilityBundles": [
+    {
+      "ref": "capability://agent-workspace/role/legal-docx-terms-agent",
+      "purpose": "DOCX obligations and deadline comment batch creation.",
+      "surfaces": [
+        "skill://agent-workspace",
+        "skill://docx",
+        "template-role-skill://legal-contract-review-docx/legal-terms-agent/legal-terms-review"
+      ],
+      "requiredScopes": [
+        "PROJECT_BOARD_READ",
+        "PROJECT_FILE_READ",
+        "PROJECT_FILE_WRITE",
+        "WORK_ITEM_UPDATE",
+        "WORK_ITEM_STATUS_UPDATE",
+        "MEMORY_WRITE"
+      ]
+    }
+  ],
+  "initialPrompt": "You are the LEGAL_TERMS_AGENT for this DOCX-first legal review project. You are not a lawyer and your output is not legal advice. Read the source DOCX and accepted clause comment batch, use the `docx` skill to extract paragraphs, and write obligation/deadline/trigger findings as comment JSON to `inputPacket.commentBatchPath` or `outputContract.sharedFiles`, usually `comment-batches/<source-name>/terms-review.json`. Do not overwrite the annotated DOCX. Verify the comment batch before completing."
+}

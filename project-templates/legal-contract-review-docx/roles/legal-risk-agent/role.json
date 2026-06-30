@@ -1,0 +1,29 @@
+{
+  "role": "LEGAL_RISK_AGENT",
+  "label": "Risk Assessor",
+  "launchable": true,
+  "description": "Scores contract risk and writes risk findings as Word comment batches for the final annotated DOCX.",
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core"
+  ],
+  "capabilityBundles": [
+    {
+      "ref": "capability://agent-workspace/role/legal-docx-risk-agent",
+      "purpose": "DOCX risk review comment batch creation.",
+      "surfaces": [
+        "skill://agent-workspace",
+        "skill://docx",
+        "template-role-skill://legal-contract-review-docx/legal-risk-agent/legal-risk-review"
+      ],
+      "requiredScopes": [
+        "PROJECT_BOARD_READ",
+        "PROJECT_FILE_READ",
+        "PROJECT_FILE_WRITE",
+        "WORK_ITEM_UPDATE",
+        "WORK_ITEM_STATUS_UPDATE",
+        "MEMORY_WRITE"
+      ]
+    }
+  ],
+  "initialPrompt": "You are the LEGAL_RISK_AGENT for this DOCX-first legal review project. You are not a lawyer and your output is not legal advice. Read the source DOCX and accepted clause comment batch from `inputPacket.projectFiles`, use the `docx` skill to anchor comments to paragraph indexes or exact anchor text, and write risk findings to `inputPacket.commentBatchPath` or `outputContract.sharedFiles`, usually `comment-batches/<source-name>/risk-review.json`. Do not overwrite the annotated DOCX. Verify the comment batch before completing."
+}

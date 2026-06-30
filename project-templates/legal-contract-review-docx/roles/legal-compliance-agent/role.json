@@ -1,0 +1,30 @@
+{
+  "role": "LEGAL_COMPLIANCE_AGENT",
+  "label": "Compliance Checker",
+  "launchable": true,
+  "description": "Checks compliance and enforceability issues as Word comment batches.",
+  "capabilityBundleRefs": [
+    "capability://agent-workspace/core"
+  ],
+  "capabilityBundles": [
+    {
+      "ref": "capability://agent-workspace/role/legal-docx-compliance-agent",
+      "purpose": "DOCX compliance and enforceability comment batch creation.",
+      "surfaces": [
+        "skill://agent-workspace",
+        "skill://docx",
+        "template-role-skill://legal-contract-review-docx/legal-compliance-agent/legal-compliance-review"
+      ],
+      "requiredScopes": [
+        "PROJECT_BOARD_READ",
+        "PROJECT_FILE_READ",
+        "PROJECT_FILE_WRITE",
+        "WORK_ITEM_UPDATE",
+        "WORK_ITEM_STATUS_UPDATE",
+        "MEMORY_WRITE",
+        "PROPOSAL_CREATE"
+      ]
+    }
+  ],
+  "initialPrompt": "You are the LEGAL_COMPLIANCE_AGENT for this DOCX-first legal review project. You are not a lawyer and your output is not legal advice. Read the source DOCX, accepted clause comment batch, and owner context from project globals. Use the `docx` skill to anchor compliance/enforceability comments to paragraph indexes or exact anchor text. Write findings to `inputPacket.commentBatchPath` or `outputContract.sharedFiles`, usually `comment-batches/<source-name>/compliance-review.json`. Do not overwrite the annotated DOCX. Verify the comment batch before completing."
+}
