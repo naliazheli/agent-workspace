@@ -23,6 +23,21 @@ NS = {
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
     "ct": "http://schemas.openxmlformats.org/package/2006/content-types",
+    "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
+    "o": "urn:schemas-microsoft-com:office:office",
+    "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
+    "v": "urn:schemas-microsoft-com:vml",
+    "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    "wp14": "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing",
+    "w10": "urn:schemas-microsoft-com:office:word",
+    "w14": "http://schemas.microsoft.com/office/word/2010/wordml",
+    "w15": "http://schemas.microsoft.com/office/word/2012/wordml",
+    "wne": "http://schemas.microsoft.com/office/word/2006/wordml",
+    "wpc": "http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas",
+    "wpg": "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup",
+    "wpi": "http://schemas.microsoft.com/office/word/2010/wordprocessingInk",
+    "wps": "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
+    "wpsCustomData": "http://www.wps.cn/officeDocument/2013/wpsCustomData",
 }
 
 COMMENTS_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
@@ -35,6 +50,42 @@ for prefix, uri in NS.items():
 def qn(prefix_name: str) -> str:
     prefix, name = prefix_name.split(":", 1)
     return f"{{{NS[prefix]}}}{name}"
+
+
+def namespace_uri(name: str) -> str | None:
+    if name.startswith("{") and "}" in name:
+        return name[1:name.index("}")]
+    return None
+
+
+def used_namespace_uris(root: ET.Element) -> set[str]:
+    used: set[str] = set()
+    for node in root.iter():
+        uri = namespace_uri(node.tag)
+        if uri:
+            used.add(uri)
+        for attr in node.attrib:
+            uri = namespace_uri(attr)
+            if uri:
+                used.add(uri)
+    return used
+
+
+def prune_ignorable_namespaces(root: ET.Element) -> None:
+    ignorable_attr = qn("mc:Ignorable")
+    value = root.attrib.get(ignorable_attr)
+    if not value:
+        return
+    used = used_namespace_uris(root)
+    keep: list[str] = []
+    for prefix in value.split():
+        uri = NS.get(prefix)
+        if not uri or uri in used:
+            keep.append(prefix)
+    if keep:
+        root.set(ignorable_attr, " ".join(keep))
+    else:
+        del root.attrib[ignorable_attr]
 
 
 def read_xml(zf: ZipFile, path: str) -> ET.Element:
@@ -233,6 +284,11 @@ def serialize_xml(root: ET.Element) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
+def serialize_xml_with_default_namespace(root: ET.Element, uri: str) -> bytes:
+    ET.register_namespace("", uri)
+    return serialize_xml(root)
+
+
 def cmd_apply_comments(args: argparse.Namespace) -> int:
     raw = json.loads(Path(args.comments_json).read_text(encoding="utf-8"))
     comments = normalize_comments(raw)
@@ -260,10 +316,11 @@ def cmd_apply_comments(args: argparse.Namespace) -> int:
         add_comment_text(comments_root, comment_id, comment)
         add_comment_marker(target, comment_id)
 
+    prune_ignorable_namespaces(document)
     files["word/document.xml"] = serialize_xml(document)
     files["word/comments.xml"] = serialize_xml(comments_root)
-    files["word/_rels/document.xml.rels"] = serialize_xml(rels_root)
-    files["[Content_Types].xml"] = serialize_xml(content_types)
+    files["word/_rels/document.xml.rels"] = serialize_xml_with_default_namespace(rels_root, NS["rel"])
+    files["[Content_Types].xml"] = serialize_xml_with_default_namespace(content_types, NS["ct"])
 
     output = Path(args.output_docx)
     output.parent.mkdir(parents=True, exist_ok=True)
