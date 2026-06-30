@@ -242,7 +242,7 @@
       "role": "COORDINATOR",
       "launchable": false,
       "label": "Coordinator",
-      "description": "System default role that dispatches DOCX legal review items to local-docker Pi specialist roles according to project status rules."
+      "description": "System default role that dispatches DOCX legal review items to specialist roles according to the project's configured launch profile and status rules."
     }
   ],
   "projectGlobals": [
