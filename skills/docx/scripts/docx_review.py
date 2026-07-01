@@ -240,11 +240,18 @@ def max_comment_id(comments_root: ET.Element) -> int:
 
 def find_target_paragraph(paragraphs: list[ET.Element], comment: dict[str, Any]) -> ET.Element | None:
     index = comment.get("paragraphIndex")
-    if isinstance(index, int) and 0 <= index < len(paragraphs):
-        return paragraphs[index]
     anchor = compact_text(comment.get("anchor") or "")
+    anchor_lower = anchor.lower()
+    if isinstance(index, int) and 0 <= index < len(paragraphs):
+        indexed_paragraph = paragraphs[index]
+        indexed_text = compact_text(paragraph_text(indexed_paragraph)).lower()
+        if not anchor or anchor_lower in indexed_text:
+            return indexed_paragraph
+        for paragraph in paragraphs:
+            if anchor_lower in compact_text(paragraph_text(paragraph)).lower():
+                return paragraph
+        return indexed_paragraph
     if anchor:
-        anchor_lower = anchor.lower()
         for paragraph in paragraphs:
             if anchor_lower in compact_text(paragraph_text(paragraph)).lower():
                 return paragraph

@@ -49,7 +49,7 @@ Specialist reviewers should usually write comment batches instead of all editing
 }
 ```
 
-Use `paragraphIndex` from the extracted paragraph list whenever possible. Include `anchor` as a short exact phrase from the paragraph as a fallback. Each comment should be concise, source-grounded, and include a concrete concern or recommended attorney/owner question.
+Use `paragraphIndex` from the extracted paragraph list whenever possible. The value must be the paragraph object's `index` field exactly as emitted by `docx_review.py extract`; do not use the array position, visible numbering, page order, or a manually renumbered non-empty paragraph ordinal. Include `anchor` as a short exact phrase from the paragraph as a fallback. When unsure about the exact `index`, omit `paragraphIndex` and rely on a distinctive exact `anchor`. Each comment should be concise, source-grounded, and include a concrete concern or recommended attorney/owner question.
 
 ## Applying Comments
 
